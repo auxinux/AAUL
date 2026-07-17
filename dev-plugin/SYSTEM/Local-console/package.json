@@ -1,0 +1,16 @@
+{
+  "name": "local-console",
+  "version": "1.0.0",
+  "description": "Admin-only local server console",
+  "author": "AutoUpdateLinux",
+  "license": "MIT",
+  "main": "index.js",
+  "type": "module",
+  "aaul": {
+    "displayName": "Local Console",
+    "category": "admin",
+    "minVersion": "1.0.0",
+    "permissions": ["settings:read", "settings:write", "users:read", "users:write"],
+    "system": true
+  }
+}

@@ -1,0 +1,17 @@
+[Unit]
+Description=Agent Auto Update Poller
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/agentautoupdate
+ExecStart=/opt/agentautoupdate/venv/bin/python /opt/agentautoupdate/app/agent_poller.py
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

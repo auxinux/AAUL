@@ -1,0 +1,15 @@
+{
+  "name": "showinfohost",
+  "version": "1.0.0",
+  "description": "Show real-time host time and CPU/RAM/Network usage on the dashboard",
+  "author": "AAUL",
+  "license": "MIT",
+  "main": "index.js",
+  "type": "module",
+  "aaul": {
+    "displayName": "Show Info Host",
+    "category": "monitoring",
+    "minVersion": "1.0.0",
+    "permissions": []
+  }
+}

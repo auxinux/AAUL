@@ -1,0 +1,32 @@
+node_modules/
+
+# Local runtime data (created automatically at first launch)
+dashboard/dashboard.sqlite
+dashboard/dashboard.sessions.sqlite
+dashboard/.session-secret
+dashboard/.data-protection-key
+dashboard/.initial-admin-password
+dashboard/ssl/
+dashboard/server/ssl/*.key
+dashboard/server/ssl/*.crt
+dashboard/server/ssl/*.pem
+
+# Env overrides (copy from .env.example)
+dashboard/.env
+dashboard/client/.env
+
+# Build output
+dashboard/client/dist/
+dashboard/public/agent/*.tar.gz
+dashboard/public/agent/VERSION
+release/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor/OS cruft
+.DS_Store
+.vscode/
+.idea/
+.claude/settings.local.json

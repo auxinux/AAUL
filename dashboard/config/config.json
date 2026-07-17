@@ -1,0 +1,31 @@
+{
+  "host": "0.0.0.0",
+  "dbPath": "./dashboard.sqlite",
+  "sessionSecret": "",
+  "allowHttpInstall": false,
+  "agentDefaultPollSeconds": 15,
+  "agentDefaultScheduleEnabled": 0,
+  "agentDefaultDailyTime": "03:00",
+  "agentAutoUpdateEnabled": true,
+  "logLevel": "info",
+  "_comment_http": "HTTP Configuration (always available unless disabled)",
+  "http": {
+    "enabled": true,
+    "apiPort": 3001,
+    "webPort": 5173
+  },
+  "_comment_https": "HTTPS/SSL Configuration",
+  "https": {
+    "enabled": true,
+    "apiPort": 3002,
+    "webPort": 5174,
+    "keyPath": "./ssl/server.key",
+    "certPath": "./ssl/server.crt",
+    "caPath": ""
+  },
+  "_comment_api": "Default API protocol for agents (http or https)",
+  "defaultApiProtocol": "https",
+  "_comment_agent_local_web": "Allow agents to expose a local web interface",
+  "agentLocalWebEnabled": false,
+  "agentLocalWebPort": 8080
+}

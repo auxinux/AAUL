@@ -1,0 +1,12 @@
+[Unit]
+Description=Agent Auto Update Runner
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/agentautoupdate
+ExecStart=/opt/agentautoupdate/venv/bin/python /opt/agentautoupdate/app/agent_runner.py --run-once
+Environment=PYTHONUNBUFFERED=1

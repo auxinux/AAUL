@@ -1,0 +1,10 @@
+[Unit]
+Description=Agent Auto Update Schedule
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+Unit=agentautoupdate-run.service
+
+[Install]
+WantedBy=timers.target
