@@ -210,7 +210,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the maintainer-facing conventions use
 
 - Git: [git.auxinux.ca/aporler/AAUL](https://git.auxinux.ca/aporler/AAUL)
 - Project page: [aaul.auxinux.ca](https://aaul.auxinux.ca)
-- Auxinux wiki: [auxinux.ca/projets/projet-aaul](https://auxinux.ca/projets/projet-aaul)
+- Auxinux wiki: [auxinux.ca/projets/projet-aaul](https://auxinux.ca/projets/projet-aaul?tab=wiki)
 
 ## License
 
