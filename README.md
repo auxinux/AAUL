@@ -133,6 +133,145 @@ The installer:
 - installs the `agentautoupdate-dashboard` systemd service
 - installs the local `AAUL` CLI on the host
 
+## Using an installed agent
+
+Once an agent is installed on a machine it is managed locally by a background service and by the dashboard. The quickest way to see the agent state from the host is the local CLI.
+
+### Agent CLI commands
+
+The agent CLI is available as `agentautoupdate` (or `agentautoupdate.exe` on Windows). On Linux and macOS it is installed under `/usr/local/bin/agentautoupdate`.
+
+```bash
+# Show installed version and local config
+agentautoupdate version
+agentautoupdate status
+
+# Send a heartbeat to the dashboard without running a command
+agentautoupdate check-in
+
+# Run operating-system updates immediately
+sudo agentautoupdate update
+
+# Update the agent itself from the dashboard bundle
+sudo agentautoupdate update-agent
+
+# Read the most recent agent log
+agentautoupdate logs
+agentautoupdate logs --tail 50
+
+# Point the agent at a different dashboard address or host
+sudo agentautoupdate config set-dashboard 192.168.1.10
+sudo agentautoupdate config set-dashboard https://dashboard.example.com:3002
+
+# Remove the agent from this machine
+sudo agentautoupdate uninstall
+```
+
+> The dashboard URL stored in `/opt/agentautoupdate/config.json` (Linux) or `/Library/Application Support/AgentAutoUpdate/config.json` (macOS) must be reachable by the agent. If the dashboard moves to a new host or port, use `config set-dashboard` on the agent.
+
+### Service control
+
+The background poller is what keeps the agent talking to the dashboard.
+
+| Platform | Service / task | Useful commands |
+|----------|----------------|-----------------|
+| Linux (systemd) | `agentautoupdate.service` | `sudo systemctl status agentautoupdate.service`, `sudo systemctl restart agentautoupdate.service` |
+| macOS (launchd) | `com.agentautoupdate.poller` | `sudo launchctl print system/com.agentautoupdate.poller`, `sudo launchctl kickstart -k system/com.agentautoupdate.poller` |
+| Windows | Task Scheduler `AgentAutoUpdate Poller` | `schtasks /Query /TN "AgentAutoUpdate Poller"`, `schtasks /Run /TN "AgentAutoUpdate Poller"` |
+
+### When an agent stops talking to the dashboard
+
+The dashboard shows an agent as offline when it has not received a poll for more than a few minutes. The machine can be powered on and healthy while the agent itself is unable to reach the dashboard. Here is the usual diagnostic order:
+
+1. **Check the agent service on the machine**
+   - Linux: `sudo systemctl status agentautoupdate.service --no-pager`
+   - macOS: `sudo launchctl print system/com.agentautoupdate.poller`
+   - Windows: `schtasks /Query /TN "AgentAutoUpdate Poller" /FO LIST`
+
+   If the service is stopped, start or restart it. A freshly installed agent that has never connected will usually show an error here first.
+
+2. **Read the agent log**
+
+   ```bash
+   agentautoupdate logs --tail 100
+   ```
+
+   Common log errors:
+   - `Connection Error: ... Is the dashboard running?` — the agent cannot reach the dashboard URL.
+   - `SSL Error: ... Check certificate configuration.` — TLS mismatch, expired certificate, or self-signed certificate not allowed.
+   - `HTTP 401: Invalid token` or `Invalid request signature` — the agent API token is wrong, rotated, or the agent clock is off.
+   - `Missing response signature` — the agent expects signed dashboard responses but the dashboard did not sign them.
+
+3. **Verify network reachability from the agent machine**
+
+   ```bash
+   # Linux / macOS
+   curl -v https://<dashboard-host>:<port>/health
+   # or, if the dashboard is HTTP
+   curl -v http://<dashboard-host>:<port>/health
+   ```
+
+   If this fails, the problem is network or firewall related, not AAUL related. Check DNS, routing, firewalls, and reverse-proxy rules.
+
+4. **Check the dashboard URL configured on the agent**
+
+   ```bash
+   agentautoupdate status | grep dashboardUrl
+   sudo agentautoupdate config show
+   ```
+
+   If the dashboard was moved behind HTTPS, a new public IP, or a different port, update it:
+
+   ```bash
+   sudo agentautoupdate config set-dashboard https://<new-host>:3002
+   ```
+
+   Then restart the poller service.
+
+5. **Check TLS / HTTPS settings**
+
+   The agent stores TLS policy in `security.json` next to `config.json`:
+
+   ```json
+   {
+     "verifyTls": true,
+     "allowSelfSigned": false,
+     "signRequests": true
+   }
+   ```
+
+   - If the dashboard uses a self-signed certificate, set `allowSelfSigned: true` (development only) or, better, install the CA on the agent machine.
+   - If HTTPS was disabled on the dashboard but the agent still points at `https://...`, the connection will fail.
+   - The dashboard's `dashboard/config/config.json` defines `defaultApiProtocol`. Make sure the install URL matches the protocol the agent actually uses.
+
+6. **Verify the agent API token**
+
+   The token lives in `config.json` as `agentApiToken`. If you regenerated or reinstalled the agent entry in the dashboard, the old token becomes invalid. The fastest fix is to reinstall the agent with a fresh install token, or to update `agentApiToken` in the agent's `config.json` to match the value shown in the dashboard for that agent.
+
+7. **Check clock skew**
+
+   Request signatures have a five-minute validity window. Run `date -u` on the agent and on the dashboard host. If they differ by more than a couple of minutes, signing will fail and the dashboard will return 401.
+
+8. **Force a manual check-in**
+
+   ```bash
+   agentautoupdate check-in
+   ```
+
+   If this succeeds, the service restart above likely fixed it. If it fails, the error printed here is the real cause.
+
+### What the dashboard "online" status really means
+
+The agent is poll-based: it calls `/api/agent/poll` at `pollIntervalSeconds` (default every 15–60 seconds). The dashboard marks an agent online when `last_seen_at` is within the last ~5 minutes. There is no persistent connection, so if an agent stops polling, check the agent side first — the dashboard cannot initiate contact.
+
+### Agent file locations
+
+| Platform | Runtime directory | Config file | Logs |
+|----------|-------------------|-------------|------|
+| Linux | `/opt/agentautoupdate` | `config.json` | `logs/agent-YYYY-MM-DD.log` |
+| macOS | `/Library/Application Support/AgentAutoUpdate` | `config.json` | `logs/agent-YYYY-MM-DD.log` |
+| Windows | `C:\ProgramData\AgentAutoUpdate` | `config.json` | `logs\agent-YYYY-MM-DD.log` |
+
 ## Dashboard CLI
 
 After a production install, the host gets an `AAUL` command for local administration.
@@ -145,6 +284,7 @@ AAUL -version
 AAUL -reset-admin
 AAUL -agent -list
 AAUL -agent -update <AGENT_ID>
+AAUL -agent -exec <AGENT_ID>
 AAUL -agent -remove <AGENT_ID>
 ```
 
