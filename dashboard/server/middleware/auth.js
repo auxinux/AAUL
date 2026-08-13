@@ -7,6 +7,7 @@
 import { dbOps } from "../db/index.js";
 import crypto from "crypto";
 import { hashToken } from "../utils/tokens.js";
+import { enrichSession } from "../plugins/plugin-loader.js";
 
 const CSRF_UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const AGENT_SIGNATURE_MAX_AGE_SECONDS = 300;
@@ -166,6 +167,7 @@ export async function requireAdmin(req, res, next) {
     username: user.username,
     isAdmin: true
   };
+  await enrichSession(req.session.user, req);
   next();
 }
 
@@ -183,6 +185,9 @@ export async function attachUser(req, res, next) {
           isAdmin: Number(user.is_admin) === 1
         }
       : null;
+    if (req.user) {
+      await enrichSession(req.user, req);
+    }
   } else {
     req.user = null;
   }

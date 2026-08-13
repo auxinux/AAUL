@@ -13,6 +13,7 @@ import { validatePackageName, validateSearchQuery } from "../utils/packages-poli
 import { broadcastSSE } from "../utils/sse.js";
 import { getActorUserId, recordAuditEvent } from "../utils/audit.js";
 import { RETRYABLE_COMMAND_TYPES, validateCommandPayload } from "../utils/command-policy.js";
+import { applyAgentFilters } from "../plugins/plugin-loader.js";
 
 const router = express.Router();
 const INSTALLER_FILENAMES = {
@@ -175,9 +176,17 @@ async function queueCommand(req, res, type, payload = null) {
 
 router.get("/", requireAdmin, async (req, res) => {
   const latestVersion = readVersion();
-  const agents = await dbOps.all(
+  let agents = await dbOps.all(
     "SELECT * FROM agents ORDER BY position IS NULL, position ASC, created_at DESC"
   );
+  // AAUL-Cloud: applique les filtres d'agents des plugins (ex: multi-tenant)
+  const filtered = [];
+  for (const agent of agents) {
+    if (await applyAgentFilters(agent, req)) {
+      filtered.push(agent);
+    }
+  }
+  agents = filtered;
   const enriched = await Promise.all(
     agents.map(async (agent) => {
       const pending = await getPendingCommand(agent.id);
@@ -248,14 +257,35 @@ router.get("/", requireAdmin, async (req, res) => {
 
 // Tâches : toutes les commandes en attente / en cours (tous agents).
 // Les commandes terminées (DONE/ERROR) ne sont volontairement pas listées.
+// AAUL-Cloud: construit le Set des IDs d'agents autorisés par les filtres plugins.
+// Retourne null si aucun filtre n'est enregistré (pas de restriction).
+async function getAllowedAgentIds(req) {
+  const allAgents = await dbOps.all("SELECT * FROM agents");
+  const allowed = new Set();
+  let hasFilter = false;
+  for (const agent of allAgents) {
+    if (await applyAgentFilters(agent, req)) {
+      allowed.add(agent.id);
+    } else {
+      hasFilter = true;
+    }
+  }
+  return hasFilter ? allowed : null;
+}
+
 router.get("/commands/pending", requireAdmin, async (req, res) => {
-  const rows = await dbOps.all(
+  let rows = await dbOps.all(
     `SELECT c.id, c.agent_id, c.type, c.status, c.created_at, c.updated_at, a.display_name
        FROM commands c
        LEFT JOIN agents a ON a.id = c.agent_id
       WHERE c.status IN ('QUEUED','IN_PROGRESS')
       ORDER BY c.created_at ASC`
   );
+  // AAUL-Cloud: filtre les commandes dont l'agent est exclu par un plugin
+  const allowedAgentIds = await getAllowedAgentIds(req);
+  if (allowedAgentIds) {
+    rows = rows.filter((r) => allowedAgentIds.has(r.agent_id));
+  }
   res.json({
     ok: true,
     commands: rows.map((r) => ({
@@ -293,7 +323,7 @@ router.get("/commands/history", requireAdmin, async (req, res) => {
 
   params.push(limit);
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-  const rows = await dbOps.all(
+  let rows = await dbOps.all(
     `SELECT c.*, a.display_name
        FROM commands c
        LEFT JOIN agents a ON a.id = c.agent_id
@@ -302,6 +332,11 @@ router.get("/commands/history", requireAdmin, async (req, res) => {
       LIMIT ?`,
     params
   );
+  // AAUL-Cloud: filtre les commandes dont l'agent est exclu par un plugin
+  const allowedAgentIds = await getAllowedAgentIds(req);
+  if (allowedAgentIds) {
+    rows = rows.filter((r) => allowedAgentIds.has(r.agent_id));
+  }
   res.json({
     ok: true,
     commands: rows.map((row) => ({
@@ -483,6 +518,11 @@ router.post("/", requireAdmin, async (req, res) => {
 router.get("/:id", requireAdmin, async (req, res) => {
   const agent = await dbOps.get("SELECT * FROM agents WHERE id = ?", [req.params.id]);
   if (!agent) {
+    res.status(404).json({ error: "Agent not found" });
+    return;
+  }
+  // AAUL-Cloud: refuse l'accès si un plugin exclut cet agent (ex: multi-tenant)
+  if (!(await applyAgentFilters(agent, req))) {
     res.status(404).json({ error: "Agent not found" });
     return;
   }

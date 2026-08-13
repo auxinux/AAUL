@@ -12,6 +12,10 @@ const loadedPlugins = new Map();
 const hooks = new Map();
 const pluginRoutes = [];
 const uiComponents = [];
+// AAUL-Cloud: points d'extension génériques (migrations, filtres, session)
+const pluginMigrations = new Map();   // pluginName -> [ {up, down} ]
+const agentFilters = [];              // [{ plugin, filter }]
+const sessionEnrichers = [];          // [{ plugin, enricher }]
 
 const VALID_HOOKS = new Set([
   "agent:poll",
@@ -105,6 +109,43 @@ function createPluginContext(app, pluginMeta) {
         slot,
         ...component
       });
+    },
+
+    // AAUL-Cloud: enregistre une migration DB (up/down) pour ce plugin.
+    // up  -> exécuté à l'installation/activation (création tables/colonnes)
+    // down-> exécuté uniquement à la purge (suppression explicite des données)
+    registerMigration(migration) {
+      if (!migration || typeof migration.up !== "function") {
+        console.warn(`[Plugin:${pluginMeta.name}] Invalid migration (missing 'up')`);
+        return;
+      }
+      if (!pluginMigrations.has(pluginMeta.name)) {
+        pluginMigrations.set(pluginMeta.name, []);
+      }
+      pluginMigrations.get(pluginMeta.name).push({
+        up: migration.up,
+        down: typeof migration.down === "function" ? migration.down : null
+      });
+    },
+
+    // AAUL-Cloud: enregistre un filtre d'agents. Retourne false pour exclure
+    // un agent des routes agents du cœur (GET /api/agents, pending, history, :id).
+    registerAgentFilter(filter) {
+      if (typeof filter !== "function") {
+        console.warn(`[Plugin:${pluginMeta.name}] Invalid agent filter`);
+        return;
+      }
+      agentFilters.push({ plugin: pluginMeta.name, filter });
+    },
+
+    // AAUL-Cloud: enregistre un enrichisseur de session. Reçoit l'objet user
+    // (req.session.user / req.user) et peut y ajouter des champs (ex: clientId).
+    registerSessionEnricher(enricher) {
+      if (typeof enricher !== "function") {
+        console.warn(`[Plugin:${pluginMeta.name}] Invalid session enricher`);
+        return;
+      }
+      sessionEnrichers.push({ plugin: pluginMeta.name, enricher });
     },
 
     log(level, message) {
@@ -287,6 +328,10 @@ export async function loadAllPlugins(app) {
     }
   }
 
+  // AAUL-Cloud: exécute les migrations 'up' des plugins après chargement,
+  // après initDb() et avant que le serveur écoute.
+  await runPluginMigrations();
+
   console.log(`[Plugins] Loaded ${loadedPlugins.size} plugin(s)`);
 }
 
@@ -400,6 +445,68 @@ export async function notifyServerReady(context) {
   await triggerHook("server:ready", context);
 }
 
+// AAUL-Cloud: exécute les migrations 'up' de tous les plugins chargés.
+// Appelé dans loadAllPlugins, après initDb() et avant que le serveur écoute.
+export async function runPluginMigrations() {
+  for (const [pluginName, migrations] of pluginMigrations) {
+    for (const migration of migrations) {
+      try {
+        await migration.up(dbOps);
+        console.log(`[Plugins] Migration up: ${pluginName}`);
+      } catch (err) {
+        console.error(`[Plugins] Migration up failed for ${pluginName}:`, err.message);
+      }
+    }
+  }
+}
+
+// AAUL-Cloud: applique les filtres d'agents enregistrés. Retourne true si
+// l'agent doit être conservé (aucun filtre ne l'exclut).
+export async function applyAgentFilters(agent, req) {
+  for (const { plugin, filter } of agentFilters) {
+    try {
+      const keep = await filter(agent, req);
+      if (keep === false) {
+        return false;
+      }
+    } catch (err) {
+      console.error(`[Plugin:${plugin}] Agent filter error:`, err.message);
+    }
+  }
+  return true;
+}
+
+// AAUL-Cloud: applique les enrichisseurs de session enregistrés sur l'objet user.
+export async function enrichSession(user, req) {
+  for (const { plugin, enricher } of sessionEnrichers) {
+    try {
+      await enricher(user, req);
+    } catch (err) {
+      console.error(`[Plugin:${plugin}] Session enricher error:`, err.message);
+    }
+  }
+  return user;
+}
+
+// AAUL-Cloud: purge les données d'un plugin (exécute les migrations 'down').
+// Action destructive et explicite — jamais appelée automatiquement.
+export async function purgePluginData(pluginName) {
+  const migrations = pluginMigrations.get(pluginName) || [];
+  let purged = false;
+  for (const migration of migrations) {
+    if (typeof migration.down === "function") {
+      try {
+        await migration.down(dbOps);
+        purged = true;
+        console.log(`[Plugins] Migration down (purge): ${pluginName}`);
+      } catch (err) {
+        console.error(`[Plugins] Migration down failed for ${pluginName}:`, err.message);
+      }
+    }
+  }
+  return purged;
+}
+
 export default {
   discoverPlugins,
   loadPlugin,
@@ -411,5 +518,9 @@ export default {
   getAllPlugins,
   getUIComponents,
   enablePlugin,
-  disablePlugin
+  disablePlugin,
+  runPluginMigrations,
+  applyAgentFilters,
+  enrichSession,
+  purgePluginData
 };
