@@ -57,9 +57,18 @@ export default function PackagesHub() {
                {t("nav.packages")}
              </h2>
           </div>
-          <p className="text-slate-400 font-medium max-w-2xl">
-            Pick a device to list, search, and install or uninstall software packages directly from the dashboard.
-          </p>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <p className="text-slate-400 font-medium max-w-2xl">
+              Pick a device to list, search, and install or uninstall software packages directly from the dashboard.
+            </p>
+            <button
+              className="btn btn-primary shrink-0"
+              onClick={() => navigate("/packages/all")}
+            >
+              <Package size={16} />
+              Tout voir (flotte)
+            </button>
+          </div>
         </div>
       </div>
 

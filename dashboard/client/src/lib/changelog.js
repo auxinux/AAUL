@@ -9,6 +9,18 @@
  */
 export const CHANGELOG = [
   {
+    version: "0.11.0",
+    date: "2026-08-14",
+    title: "Gestion des paquets à l'échelle de la flotte",
+    changes: [
+      "Nouvelle vue « Tout » dans la section Paquets : agrégation des paquets installés et des mises à jour sur toutes les machines.",
+      "Onglet « Installés » (vue Tout) : liste consolidée des paquets, avec indication des machines où chacun est installé.",
+      "Onglet « Mises à jour » (vue Tout) : liste des paquets à mettre à jour avec le nombre de machines concernées, et détail des machines via une fenêtre dédiée.",
+      "Mise à jour sélective ou complète des paquets sur toutes les machines ciblées, en un clic.",
+      "Correctif : les fenêtres modales s'ouvrent désormais centrées à l'écran (le contenu long ne les poussait plus vers le bas).",
+    ],
+  },
+  {
     version: "0.10.9",
     date: "2026-07-13",
     title: "Notes de version complètes",

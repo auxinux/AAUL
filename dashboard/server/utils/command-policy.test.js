@@ -3,13 +3,13 @@ import { validateCommandPayload } from "./command-policy.js";
 
 assert.equal(validateCommandPayload("RUN_NOW").ok, true);
 assert.equal(validateCommandPayload("RUN_NOW", { command: "rm -rf /" }).ok, false);
-assert.deepEqual(validateCommandPayload("UPDATE_AGENT", { version: "0.7.6" }), {
+assert.deepEqual(validateCommandPayload("UPDATE_AGENT", { version: "0.8.0" }), {
   ok: true,
-  payload: { version: "0.7.6" }
+  payload: { version: "0.8.0" }
 });
 assert.equal(validateCommandPayload("UPDATE_AGENT", { version: "latest" }).ok, false);
 assert.equal(
-  validateCommandPayload("UPDATE_AGENT", { version: "0.7.6", triggeredBy: "user" }).ok,
+  validateCommandPayload("UPDATE_AGENT", { version: "0.8.0", triggeredBy: "user" }).ok,
   false
 );
 assert.equal(validateCommandPayload("SHELL", { command: "rm -rf /" }).ok, false);

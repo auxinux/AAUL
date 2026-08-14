@@ -12,9 +12,9 @@
 #
 #  Usage:
 #    ./release.sh                          # utilise les versions actuelles des fichiers
-#    ./release.sh -d 0.10.9 -a 0.7.6       # fixe dashboard=0.10.9, agent=0.7.6
-#    ./release.sh --dashboard 0.10.9       # ne change que la version dashboard
-#    ./release.sh --agent 0.7.6            # ne change que la version agent
+#    ./release.sh -d 0.11.0 -a 0.8.0       # fixe dashboard=0.11.0, agent=0.8.0
+#    ./release.sh --dashboard 0.11.0       # ne change que la version dashboard
+#    ./release.sh --agent 0.8.0            # ne change que la version agent
 #    ./release.sh --no-bump                # ne touche à aucune version, zippe tel quel
 #    ./release.sh --skip-build              # archive sans rebuilder (builds existants requis)
 #

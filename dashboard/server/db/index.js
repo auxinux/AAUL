@@ -174,6 +174,13 @@ export async function initDb() {
   if (!agentColumnNames.has("updates_checked_at")) {
     await run("ALTER TABLE agents ADD COLUMN updates_checked_at TEXT");
   }
+  // Installed packages found by PACKAGES_LIST (JSON: {manager,packages,count}).
+  // Not persisted automatically by the agent — the dashboard stores the last
+  // scan result so the fleet-wide "Tout" view can aggregate without re-pinging
+  // every machine. Cleared/refreshed via "Scan fleet".
+  if (!agentColumnNames.has("packages_json")) {
+    await run("ALTER TABLE agents ADD COLUMN packages_json TEXT");
+  }
   // Grouping + manual ordering (global)
   if (!agentColumnNames.has("group_id")) {
     await run("ALTER TABLE agents ADD COLUMN group_id INTEGER");

@@ -13,6 +13,7 @@ import AgentDetails from "./pages/AgentDetails.jsx";
 import Plugins from "./pages/Plugins.jsx";
 import Packages from "./pages/Packages.jsx";
 import PackagesHub from "./pages/PackagesHub.jsx";
+import PackagesAll from "./pages/PackagesAll.jsx";
 import Tasks from "./pages/Tasks.jsx";
 
 export default function App() {
@@ -31,6 +32,7 @@ export default function App() {
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="packages" element={<PackagesHub />} />
+          <Route path="packages/all" element={<PackagesAll />} />
           <Route path="tasks" element={<Tasks />} />
           <Route path="agents/:id" element={<AgentDetails />} />
           <Route path="agents/:id/packages" element={<Packages />} />

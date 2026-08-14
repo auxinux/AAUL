@@ -406,6 +406,15 @@ router.post("/command-result", requireAgentAuth, async (req, res) => {
     );
     broadcastSSE("agent:update", { agentId: req.agent.id });
   }
+  if (command.type === "PACKAGES_LIST" && finalStatus !== "ERROR" && body.result) {
+    // Persist the last installed-package scan so the fleet-wide "Tout" view can
+    // aggregate across machines without re-pinging each one.
+    await dbOps.run("UPDATE agents SET packages_json = ? WHERE id = ?", [
+      JSON.stringify(body.result),
+      req.agent.id
+    ]);
+    broadcastSSE("agent:update", { agentId: req.agent.id });
+  }
   if ((command.type === "UPDATE_PACKAGES" || command.type === "RUN_NOW") && finalStatus !== "ERROR") {
     // Updates were applied — clear the cached list so it refreshes on next check.
     await dbOps.run("UPDATE agents SET pending_updates_json = NULL WHERE id = ?", [req.agent.id]);

@@ -759,7 +759,11 @@ router.put("/:id/group", requireAdmin, async (req, res) => {
 
 // Read-only: scan for available updates on every agent (no install).
 router.post("/commands/check-updates-all", requireAdmin, async (req, res) => {
-  const agents = await dbOps.all("SELECT id FROM agents");
+  const allAgents = await dbOps.all("SELECT id FROM agents");
+  const agents = [];
+  for (const agent of allAgents) {
+    if (await applyAgentFilters(agent, req)) agents.push(agent);
+  }
   const results = await Promise.all(
     agents.map(async (a) => {
       const r = await createCommand(a.id, "CHECK_UPDATES", null, req);
@@ -777,6 +781,178 @@ router.post("/:id/packages/check-updates", requireAdmin, async (req, res) => {
     return;
   }
   res.json({ ok: true, commandId: result.id });
+});
+
+// ---------------------------------------------------------------------------
+//  Fleet-wide ("Tout") package aggregation
+// ---------------------------------------------------------------------------
+
+// Read-only: launch PACKAGES_LIST on every agent so the fleet view has fresh
+// installed-package data. Agents with a pending command are skipped.
+// NOTE: the agent serializes commands (one at a time), so we enqueue a single
+// command per agent here. CHECK_UPDATES is triggered separately via the
+// existing `/commands/check-updates-all` endpoint once the list scan completes.
+router.post("/packages/scan-all", requireAdmin, async (req, res) => {
+  const allAgents = await dbOps.all("SELECT id FROM agents");
+  const agents = [];
+  for (const agent of allAgents) {
+    if (await applyAgentFilters(agent, req)) agents.push(agent);
+  }
+  const results = await Promise.all(
+    agents.map(async (a) => {
+      const list = await createCommand(a.id, "PACKAGES_LIST", null, req);
+      return {
+        id: a.id,
+        commandId: list.error ? null : list.id,
+        error: list.error || null
+      };
+    })
+  );
+  res.json({
+    ok: true,
+    queued: results.filter((r) => r.commandId).length,
+    results
+  });
+});
+
+// Read-only: aggregate installed packages and available updates across all
+// agents from the persisted scan results (packages_json / pending_updates_json).
+router.get("/packages/all", requireAdmin, async (req, res) => {
+  const allAgents = await dbOps.all("SELECT * FROM agents");
+  const agents = [];
+  for (const agent of allAgents) {
+    if (await applyAgentFilters(agent, req)) agents.push(agent);
+  }
+
+  const installedByPkg = new Map(); // name -> { name, versions:Set, agents:[{id,name,hostname,ip}] }
+  const updatesByPkg = new Map(); // name -> { name, detail, agents:[...] }
+
+  let scannedForInstalled = 0;
+  let scannedForUpdates = 0;
+
+  for (const agent of agents) {
+    const id = agent.id;
+    const label = agent.display_name || agent.last_hostname || id;
+
+    // Installed packages
+    if (agent.packages_json) {
+      let pkgs;
+      try { pkgs = JSON.parse(agent.packages_json); } catch { pkgs = null; }
+      if (pkgs && Array.isArray(pkgs.packages) && pkgs.packages.length > 0) {
+        scannedForInstalled += 1;
+        for (const p of pkgs.packages) {
+          const name = p.name;
+          if (!installedByPkg.has(name)) {
+            installedByPkg.set(name, { name, versions: new Set(), agents: [] });
+          }
+          const entry = installedByPkg.get(name);
+          if (p.version) entry.versions.add(p.version);
+          entry.agents.push({ id, name: label, hostname: agent.last_hostname, ip: agent.last_ip });
+        }
+      }
+    }
+
+    // Available updates
+    if (agent.pending_updates_json) {
+      let ups;
+      try { ups = JSON.parse(agent.pending_updates_json); } catch { ups = null; }
+      if (ups && Array.isArray(ups.updates) && ups.updates.length > 0) {
+        scannedForUpdates += 1;
+        for (const u of ups.updates) {
+          const name = u.name;
+          if (!updatesByPkg.has(name)) {
+            updatesByPkg.set(name, { name, detail: u.detail || "", agents: [] });
+          }
+          updatesByPkg.get(name).agents.push({ id, name: label, hostname: agent.last_hostname, ip: agent.last_ip });
+        }
+      }
+    }
+  }
+
+  const installed = Array.from(installedByPkg.values())
+    .map((e) => ({
+      name: e.name,
+      versions: Array.from(e.versions),
+      count: e.agents.length,
+      agents: e.agents
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const updates = Array.from(updatesByPkg.values())
+    .map((e) => ({
+      name: e.name,
+      detail: e.detail,
+      count: e.agents.length,
+      agents: e.agents
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  res.json({
+    ok: true,
+    installed,
+    updates,
+    stats: {
+      totalAgents: agents.length,
+      scannedForInstalled,
+      scannedForUpdates
+    }
+  });
+});
+
+// Mutating: apply an update to a package on every agent that reports it as
+// available. Requires per-agent opt-in; agents without opt-in are skipped.
+router.post("/packages/bulk-update", requireAdmin, async (req, res) => {
+  const names = Array.isArray(req.body?.names) ? req.body.names : [];
+  if (names.length === 0) {
+    res.status(400).json({ error: "No packages selected" });
+    return;
+  }
+  const clean = [];
+  for (const n of names) {
+    const check = validatePackageName(n);
+    if (!check.ok) {
+      res.status(400).json({ error: `${check.error}: ${n}` });
+      return;
+    }
+    clean.push(check.name);
+  }
+
+  const allAgents = await dbOps.all(
+    "SELECT id, pending_updates_json FROM agents WHERE packages_enabled = 1"
+  );
+  const agents = [];
+  for (const agent of allAgents) {
+    if (await applyAgentFilters(agent, req)) agents.push(agent);
+  }
+  const results = [];
+  for (const agent of agents) {
+    // Only queue the subset of selected packages that THIS agent reports as
+    // outdated. Sending a package the agent doesn't know about (or doesn't have
+    // installed) would fail its update command.
+    let reportedNames = [];
+    if (agent.pending_updates_json) {
+      try {
+        const parsed = JSON.parse(agent.pending_updates_json);
+        if (Array.isArray(parsed.updates)) {
+          reportedNames = parsed.updates
+            .map((u) => u.name)
+            .filter((name) => clean.includes(name));
+        }
+      } catch { /* ignore */ }
+    }
+    if (reportedNames.length === 0) {
+      results.push({ id: agent.id, queued: false, reason: "not-reported" });
+      continue;
+    }
+    const r = await createCommand(agent.id, "UPDATE_PACKAGES", { names: reportedNames }, req);
+    results.push({ id: agent.id, queued: Boolean(r.id), error: r.error || null });
+  }
+
+  res.json({
+    ok: true,
+    queued: results.filter((r) => r.queued).length,
+    results
+  });
 });
 
 // Apply updates to selected packages (mutating: requires the opt-in + validation).
