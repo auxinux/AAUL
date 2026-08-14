@@ -787,7 +787,7 @@ router.post("/:id/packages/check-updates", requireAdmin, async (req, res) => {
 //  Fleet-wide ("Tout") package aggregation
 // ---------------------------------------------------------------------------
 
-// Read-only: launch PACKAGES_LIST on every agent so the fleet view has fresh
+// Queue PACKAGES_LIST on every agent so the fleet view has fresh
 // installed-package data. Agents with a pending command are skipped.
 // NOTE: the agent serializes commands (one at a time), so we enqueue a single
 // command per agent here. CHECK_UPDATES is triggered separately via the
@@ -834,12 +834,13 @@ router.get("/packages/all", requireAdmin, async (req, res) => {
     const id = agent.id;
     const label = agent.display_name || agent.last_hostname || id;
 
-    // Installed packages
+    // Installed packages — a machine is "scanned" once a result is persisted,
+    // even if the list is empty.
     if (agent.packages_json) {
+      scannedForInstalled += 1;
       let pkgs;
       try { pkgs = JSON.parse(agent.packages_json); } catch { pkgs = null; }
-      if (pkgs && Array.isArray(pkgs.packages) && pkgs.packages.length > 0) {
-        scannedForInstalled += 1;
+      if (pkgs && Array.isArray(pkgs.packages)) {
         for (const p of pkgs.packages) {
           const name = p.name;
           if (!installedByPkg.has(name)) {
@@ -852,12 +853,15 @@ router.get("/packages/all", requireAdmin, async (req, res) => {
       }
     }
 
-    // Available updates
+    // Available updates — updates_checked_at marks a completed CHECK_UPDATES,
+    // which is more reliable than pending_updates_json (cleared after updates).
+    if (agent.updates_checked_at) {
+      scannedForUpdates += 1;
+    }
     if (agent.pending_updates_json) {
       let ups;
       try { ups = JSON.parse(agent.pending_updates_json); } catch { ups = null; }
-      if (ups && Array.isArray(ups.updates) && ups.updates.length > 0) {
-        scannedForUpdates += 1;
+      if (ups && Array.isArray(ups.updates)) {
         for (const u of ups.updates) {
           const name = u.name;
           if (!updatesByPkg.has(name)) {
