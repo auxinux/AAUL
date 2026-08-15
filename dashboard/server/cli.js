@@ -19,6 +19,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.join(__dirname, "..", "..");
 const dashboardRoot = path.join(rootDir, "dashboard");
 const dashboardPackagePath = path.join(dashboardRoot, "package.json");
+const dashboardVersionPath = path.join(dashboardRoot, "VERSION");
 const agentVersionPath = path.join(rootDir, "agent", "app", "VERSION");
 const bundledAgentVersionPath = path.join(dashboardRoot, "public", "agent", "VERSION");
 const SERVICE_NAME = "agentautoupdate-dashboard";
@@ -130,6 +131,12 @@ function formatDate(value) {
 }
 
 function getDashboardVersion() {
+  // Prefer the dedicated VERSION file (source of truth, written by release.sh);
+  // fall back to package.json for legacy installs that predate it.
+  const fileVersion = readText(dashboardVersionPath, "");
+  if (fileVersion) {
+    return fileVersion;
+  }
   const pkg = readJson(dashboardPackagePath, {});
   return pkg?.version || "0.0.0";
 }

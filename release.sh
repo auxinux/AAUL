@@ -64,6 +64,7 @@ CLIENT_LOCK="$ROOT_DIR/dashboard/client/package-lock.json"
 APP_VERSION_JS="$ROOT_DIR/dashboard/client/src/lib/appVersion.js"
 CLIENT_ENV_EXAMPLE="$ROOT_DIR/dashboard/client/.env.example"
 AGENT_VERSION_FILE="$ROOT_DIR/agent/app/VERSION"
+DASH_VERSION_FILE="$ROOT_DIR/dashboard/VERSION"
 
 validate_semver() {
   echo "$1" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || die "Version invalide: '$1' (attendu X.Y.Z)"
@@ -116,6 +117,7 @@ if [ "$NO_BUMP" = false ]; then
   sed -i.bak "s/|| \"[0-9]*\.[0-9]*\.[0-9]*\"/|| \"$DASHBOARD_VER\"/" "$APP_VERSION_JS" && rm -f "$APP_VERSION_JS.bak"
   sed -i.bak "s/^VITE_APP_VERSION=.*/VITE_APP_VERSION=$DASHBOARD_VER/" "$CLIENT_ENV_EXAMPLE" && rm -f "$CLIENT_ENV_EXAMPLE.bak"
   echo "$AGENT_VER" > "$AGENT_VERSION_FILE"
+  echo "$DASHBOARD_VER" > "$DASH_VERSION_FILE"
 
   ok "Versions écrites"
 else
