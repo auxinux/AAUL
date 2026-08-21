@@ -179,6 +179,14 @@ router.post("/change-password", async (req, res) => {
     return;
   }
 
+  // Rate-limit : 5 tentatives par session / 15 min (anti brute-force du mot
+  // de passe courant).
+  const clientIp = req.ip || req.socket?.remoteAddress || "unknown";
+  if (isRateLimited(clientIp)) {
+    res.status(429).json({ error: "Too many password change attempts. Try again later." });
+    return;
+  }
+
   const { currentPassword, newPassword } = req.body || {};
   if (!currentPassword || !newPassword) {
     res.status(400).json({ error: "Missing currentPassword or newPassword" });
@@ -197,9 +205,12 @@ router.post("/change-password", async (req, res) => {
 
   const ok = await bcrypt.compare(String(currentPassword), user.password_hash);
   if (!ok) {
+    recordFailedAttempt(clientIp);
     res.status(401).json({ error: "Current password is invalid" });
     return;
   }
+
+  clearFailedAttempts(clientIp);
 
   const hash = await bcrypt.hash(String(newPassword), 10);
   await dbOps.run(

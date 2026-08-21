@@ -51,9 +51,9 @@ app.use((req, res, next) => {
   next();
 });
 
-if (httpsEnabled) {
-  app.set("trust proxy", 1);
-}
+// Always trust the first proxy so req.ip reflects the real client IP
+// even behind an HTTP reverse proxy. Required for accurate rate-limiting.
+app.set("trust proxy", 1);
 
 // Body parsing middleware. Keep the exact raw body so agent request signatures
 // can be verified against the literal bytes (no JSON re-serialization agreement
