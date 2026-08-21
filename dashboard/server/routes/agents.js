@@ -13,7 +13,7 @@ import { validatePackageName, validateSearchQuery } from "../utils/packages-poli
 import { broadcastSSE } from "../utils/sse.js";
 import { getActorUserId, recordAuditEvent } from "../utils/audit.js";
 import { RETRYABLE_COMMAND_TYPES, validateCommandPayload } from "../utils/command-policy.js";
-import { applyAgentFilters } from "../plugins/plugin-loader.js";
+import { applyAgentFilters, triggerHook } from "../plugins/plugin-loader.js";
 
 const router = express.Router();
 const INSTALLER_FILENAMES = {
@@ -90,6 +90,12 @@ async function createCommand(agentId, type, payload, req = null) {
   }
   const agent = await dbOps.get("SELECT id FROM agents WHERE id = ?", [agentId]);
   if (!agent) {
+    return { error: "Agent not found", status: 404 };
+  }
+  // AAUL-Cloud: un plugin (ex: multi-tenant) peut interdire l'accès à cet agent.
+  // Sans cette garde, toute route de commande (run-now, uninstall, …) contourne
+  // l'isolation des tenants.
+  if (req && !(await applyAgentFilters(agent, req))) {
     return { error: "Agent not found", status: 404 };
   }
   const existing = await getPendingCommand(agentId);
@@ -365,20 +371,42 @@ router.post("/commands/:commandId/retry", requireAdmin, async (req, res) => {
   res.json({ ok: true, commandId: result.id });
 });
 
-// Purge : annuler TOUTES les tâches en attente / en cours (tous agents).
+// Purge : annuler TOUTES les tâches en attente / en cours.
 // Utile pour vider un backlog (ex: commandes héritées d'une ancienne version).
+// AAUL-Cloud: restreinte aux agents autorisés par les filtres de plugins,
+// sinon un tenant peut annuler les commandes des autres tenants (DoS).
 router.post("/commands/cancel-all", requireAdmin, async (req, res) => {
   const now = new Date().toISOString();
-  const result = await dbOps.run(
-    "UPDATE commands SET status = 'ERROR', error_message = ?, updated_at = ? WHERE status IN ('QUEUED','IN_PROGRESS')",
-    ["Cancelled by admin (bulk purge)", now]
-  );
+  const allowedAgentIds = await getAllowedAgentIds(req);
+  let result;
+  if (allowedAgentIds) {
+    if (allowedAgentIds.size === 0) {
+      res.json({ ok: true, cancelled: 0 });
+      return;
+    }
+    const placeholders = Array.from(allowedAgentIds).map(() => "?").join(",");
+    result = await dbOps.run(
+      `UPDATE commands SET status = 'ERROR', error_message = ?, updated_at = ? WHERE status IN ('QUEUED','IN_PROGRESS') AND agent_id IN (${placeholders})`,
+      ["Cancelled by admin (bulk purge)", now, ...Array.from(allowedAgentIds)]
+    );
+  } else {
+    result = await dbOps.run(
+      "UPDATE commands SET status = 'ERROR', error_message = ?, updated_at = ? WHERE status IN ('QUEUED','IN_PROGRESS')",
+      ["Cancelled by admin (bulk purge)", now]
+    );
+  }
   broadcastSSE("command:update", { bulk: true });
   res.json({ ok: true, cancelled: result?.changes ?? null });
 });
 
 // Annuler une tâche précise (en attente ou en cours).
 router.post("/:id/commands/:commandId/cancel", requireAdmin, async (req, res) => {
+  // AAUL-Cloud: isolation multi-tenant avant d'annuler la commande d'un agent
+  const agent = await dbOps.get("SELECT id FROM agents WHERE id = ?", [req.params.id]);
+  if (!agent || !(await applyAgentFilters(agent, req))) {
+    res.status(404).json({ error: "Agent not found" });
+    return;
+  }
   const cmd = await dbOps.get(
     "SELECT id, status FROM commands WHERE id = ? AND agent_id = ?",
     [req.params.commandId, req.params.id]
@@ -403,10 +431,17 @@ router.post("/:id/commands/:commandId/cancel", requireAdmin, async (req, res) =>
 // Convenience action from the dashboard header.
 router.post("/update-outdated", requireAdmin, async (req, res) => {
   const latestVersion = readVersion();
-  const agents = await dbOps.all(
+  let agents = await dbOps.all(
     "SELECT id, agent_version FROM agents WHERE agent_version IS NOT NULL AND agent_version != ?",
     [latestVersion]
   );
+  // AAUL-Cloud: isolation multi-tenant — ne pas révéler ni mettre à jour
+  // les agents d'autres tenants.
+  const filtered = [];
+  for (const agent of agents) {
+    if (await applyAgentFilters(agent, req)) filtered.push(agent);
+  }
+  agents = filtered;
   const results = await Promise.all(
     agents.map(async (agent) => {
       const existing = await getPendingCommand(agent.id);
@@ -492,6 +527,10 @@ router.post("/", requireAdmin, async (req, res) => {
 
   const resolvedBase = installBaseUrl || (await resolveBaseUrl()).replace(/\/$/, "");
   const install = buildInstallCommands(resolvedBase, installToken);
+  // AAUL-Cloud: notifie les plugins (ex: multi-tenant) qu'un agent vient d'être
+  // créé. Le hook reçoit { agentId, req } et peut stamper des colonnes propres
+  // au plugin (ex: client_id) — le cœur ne connaît pas ces colonnes.
+  await triggerHook("agent:registered", { agentId, req });
   await recordAuditEvent({
     actorUserId: getActorUserId(req),
     action: "agent.created",
@@ -580,6 +619,13 @@ router.get("/:id/install", requireAdmin, async (req, res) => {
     res.status(404).json({ error: "Agent not found" });
     return;
   }
+  // AAUL-Cloud: FAILLE CRITIQUE — cette route renvoie le token d'installation
+  // en clair. Sans garde, un tenant peut obtenir le token d'un agent d'un
+  // autre tenant et en prendre le contrôle total.
+  if (!(await applyAgentFilters(agent, req))) {
+    res.status(404).json({ error: "Agent not found" });
+    return;
+  }
   const installToken = await ensureInstallToken(agent);
   if (!installToken) {
     res.status(500).json({ error: "Install token unavailable" });
@@ -605,6 +651,16 @@ router.get("/:id/install", requireAdmin, async (req, res) => {
 });
 
 router.delete("/:id", requireAdmin, async (req, res) => {
+  // AAUL-Cloud: vérifie l'isolation avant toute suppression.
+  const agent = await dbOps.get("SELECT id FROM agents WHERE id = ?", [req.params.id]);
+  if (!agent) {
+    res.status(404).json({ error: "Agent not found" });
+    return;
+  }
+  if (!(await applyAgentFilters(agent, req))) {
+    res.status(404).json({ error: "Agent not found" });
+    return;
+  }
   await dbOps.run("DELETE FROM commands WHERE agent_id = ?", [req.params.id]);
   await dbOps.run("DELETE FROM agents WHERE id = ?", [req.params.id]);
   await recordAuditEvent({
@@ -633,6 +689,11 @@ router.put("/:id/local-web", requireAdmin, async (req, res) => {
   
   const agent = await dbOps.get("SELECT id FROM agents WHERE id = ?", [req.params.id]);
   if (!agent) {
+    res.status(404).json({ error: "Agent not found" });
+    return;
+  }
+  // AAUL-Cloud: isolation multi-tenant
+  if (!(await applyAgentFilters(agent, req))) {
     res.status(404).json({ error: "Agent not found" });
     return;
   }
@@ -676,6 +737,11 @@ router.put("/:id/monitor", requireAdmin, async (req, res) => {
     res.status(404).json({ error: "Agent not found" });
     return;
   }
+  // AAUL-Cloud: isolation multi-tenant
+  if (!(await applyAgentFilters(agent, req))) {
+    res.status(404).json({ error: "Agent not found" });
+    return;
+  }
   // When re-enabling, reset the online state so the watcher re-evaluates cleanly.
   await dbOps.run(
     "UPDATE agents SET monitor_enabled = ?, is_online = NULL, offline_since = NULL WHERE id = ?",
@@ -706,6 +772,11 @@ router.put("/:id/packages", requireAdmin, async (req, res) => {
     res.status(404).json({ error: "Agent not found" });
     return;
   }
+  // AAUL-Cloud: isolation multi-tenant
+  if (!(await applyAgentFilters(agent, req))) {
+    res.status(404).json({ error: "Agent not found" });
+    return;
+  }
   await dbOps.run("UPDATE agents SET packages_enabled = ? WHERE id = ?", [
     enabled ? 1 : 0,
     req.params.id
@@ -730,8 +801,12 @@ router.put("/reorder", requireAdmin, async (req, res) => {
   }
   let pos = 0;
   for (const id of orderedIds) {
-    await dbOps.run("UPDATE agents SET position = ? WHERE id = ?", [pos, String(id)]);
-    pos += 1;
+    // AAUL-Cloud: on ne réordonne que les agents visibles pour cet utilisateur.
+    const agent = await dbOps.get("SELECT id FROM agents WHERE id = ?", [String(id)]);
+    if (agent && (await applyAgentFilters(agent, req))) {
+      await dbOps.run("UPDATE agents SET position = ? WHERE id = ?", [pos, String(id)]);
+      pos += 1;
+    }
   }
   res.json({ ok: true });
 });
@@ -741,6 +816,11 @@ router.put("/:id/group", requireAdmin, async (req, res) => {
   const { groupId } = req.body || {};
   const agent = await dbOps.get("SELECT id FROM agents WHERE id = ?", [req.params.id]);
   if (!agent) {
+    res.status(404).json({ error: "Agent not found" });
+    return;
+  }
+  // AAUL-Cloud: isolation multi-tenant
+  if (!(await applyAgentFilters(agent, req))) {
     res.status(404).json({ error: "Agent not found" });
     return;
   }
@@ -1129,6 +1209,12 @@ router.post("/:id/commands/cancel", requireAdmin, async (req, res) => {
 });
 
 router.get("/:id/commands", requireAdmin, async (req, res) => {
+  // AAUL-Cloud: isolation multi-tenant avant de lister les commandes d'un agent
+  const agent = await dbOps.get("SELECT id FROM agents WHERE id = ?", [req.params.id]);
+  if (!agent || !(await applyAgentFilters(agent, req))) {
+    res.status(404).json({ error: "Agent not found" });
+    return;
+  }
   const limit = Math.min(Number.parseInt(req.query.limit, 10) || 50, 200);
   const commands = await dbOps.all(
     "SELECT * FROM commands WHERE agent_id = ? ORDER BY created_at DESC LIMIT ?",
@@ -1138,6 +1224,12 @@ router.get("/:id/commands", requireAdmin, async (req, res) => {
 });
 
 router.get("/:id/commands/:commandId", requireAdmin, async (req, res) => {
+  // AAUL-Cloud: isolation multi-tenant avant de lire une commande d'un agent
+  const agent = await dbOps.get("SELECT id FROM agents WHERE id = ?", [req.params.id]);
+  if (!agent || !(await applyAgentFilters(agent, req))) {
+    res.status(404).json({ error: "Agent not found" });
+    return;
+  }
   const command = await dbOps.get(
     "SELECT * FROM commands WHERE id = ? AND agent_id = ?",
     [req.params.commandId, req.params.id]
