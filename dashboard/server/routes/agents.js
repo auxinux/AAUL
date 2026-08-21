@@ -1100,6 +1100,12 @@ async function requirePackagesEnabled(req, res) {
     res.status(404).json({ error: "Agent not found" });
     return null;
   }
+  // AAUL-Cloud: isolation multi-tenant — même réponse pour agent inexistant
+  // ou non autorisé (pas de fuite d'information).
+  if (!(await applyAgentFilters(agent, req))) {
+    res.status(404).json({ error: "Agent not found" });
+    return null;
+  }
   if (Number(agent.packages_enabled) !== 1) {
     res.status(403).json({ error: "Package management is disabled for this agent" });
     return null;
@@ -1185,6 +1191,12 @@ router.post("/:id/commands/log-content", requireAdmin, async (req, res) => {
 });
 
 router.post("/:id/commands/cancel", requireAdmin, async (req, res) => {
+  // AAUL-Cloud: isolation multi-tenant avant d'annuler la commande d'un agent
+  const agent = await dbOps.get("SELECT id FROM agents WHERE id = ?", [req.params.id]);
+  if (!agent || !(await applyAgentFilters(agent, req))) {
+    res.status(404).json({ error: "Agent not found" });
+    return;
+  }
   const pending = await dbOps.get(
     "SELECT id FROM commands WHERE agent_id = ? AND status = 'QUEUED' ORDER BY created_at ASC LIMIT 1",
     [req.params.id]

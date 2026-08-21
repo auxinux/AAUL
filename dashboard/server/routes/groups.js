@@ -7,6 +7,7 @@ import { dbOps } from "../db/index.js";
 import { requireAdmin } from "../middleware/auth.js";
 import { broadcastSSE } from "../utils/sse.js";
 import { GROUP_COMMAND_TYPES, validateCommandPayload } from "../utils/command-policy.js";
+import { applyAgentFilters } from "../plugins/plugin-loader.js";
 
 const router = express.Router();
 
@@ -79,6 +80,7 @@ router.delete("/:id", requireAdmin, async (req, res) => {
 });
 
 // Queue an action for every agent in the group (skips agents already busy).
+// AAUL-Cloud: seuls les agents autorisés par les filtres de plugins reçoivent la commande.
 router.post("/:id/action", requireAdmin, async (req, res) => {
   const { type } = req.body || {};
   if (!GROUP_COMMAND_TYPES.has(type)) {
@@ -93,6 +95,8 @@ router.post("/:id/action", requireAdmin, async (req, res) => {
   const agents = await dbOps.all("SELECT id FROM agents WHERE group_id = ?", [req.params.id]);
   let queued = 0;
   for (const agent of agents) {
+    // AAUL-Cloud: ne pas exécuter de commande sur un agent exclu par les filtres
+    if (!(await applyAgentFilters(agent, req))) continue;
     const pending = await dbOps.get(
       "SELECT id FROM commands WHERE agent_id = ? AND status IN ('QUEUED','IN_PROGRESS') LIMIT 1",
       [agent.id]

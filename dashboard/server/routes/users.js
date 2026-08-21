@@ -2,6 +2,9 @@ import express from "express";
 import bcrypt from "bcrypt";
 import { dbOps } from "../db/index.js";
 import { requireAdmin } from "../middleware/auth.js";
+import { enrichSession } from "../plugins/plugin-loader.js";
+
+const SYSTEM_CLIENT_ID = "default";
 
 const router = express.Router();
 
@@ -11,7 +14,19 @@ function isPasswordTooWeak(password) {
   return String(password).length < MIN_PASSWORD_LENGTH;
 }
 
-router.get("/", requireAdmin, async (req, res) => {
+// AAUL-Cloud: gestion des utilisateurs réservée à l'admin système.
+// requireAdmin enrichit la session avec clientId ; on refuse les admins
+// de tenant (client_id != null et != 'default').
+function requireSystemAdmin(req, res, next) {
+  const clientId = req.session?.user?.clientId ?? null;
+  if (clientId && clientId !== SYSTEM_CLIENT_ID) {
+    res.status(403).json({ error: "System admin access required" });
+    return;
+  }
+  next();
+}
+
+router.get("/", requireAdmin, requireSystemAdmin, async (req, res) => {
   const users = await dbOps.all(
     "SELECT id, username, created_at, COALESCE(is_admin, 0) AS is_admin, COALESCE(must_change_password, 0) AS must_change_password FROM users ORDER BY id ASC"
   );
@@ -27,7 +42,7 @@ router.get("/", requireAdmin, async (req, res) => {
   });
 });
 
-router.post("/", requireAdmin, async (req, res) => {
+router.post("/", requireAdmin, requireSystemAdmin, async (req, res) => {
   const { username, password, isAdmin } = req.body || {};
   if (!username || !password) {
     res.status(400).json({ error: "Missing username or password" });
@@ -54,7 +69,7 @@ router.post("/", requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 
-router.put("/:id/password", requireAdmin, async (req, res) => {
+router.put("/:id/password", requireAdmin, requireSystemAdmin, async (req, res) => {
   const { password } = req.body || {};
   if (!password) {
     res.status(400).json({ error: "Missing password" });
@@ -72,7 +87,7 @@ router.put("/:id/password", requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 
-router.put("/:id/admin", requireAdmin, async (req, res) => {
+router.put("/:id/admin", requireAdmin, requireSystemAdmin, async (req, res) => {
   const { isAdmin } = req.body || {};
   if (typeof isAdmin !== "boolean") {
     res.status(400).json({ error: "Missing isAdmin boolean" });
@@ -106,7 +121,7 @@ router.put("/:id/admin", requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 
-router.delete("/:id", requireAdmin, async (req, res) => {
+router.delete("/:id", requireAdmin, requireSystemAdmin, async (req, res) => {
   if (String(req.session.userId) === String(req.params.id)) {
     res.status(400).json({ error: "Cannot delete your own account" });
     return;
