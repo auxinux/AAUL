@@ -97,14 +97,26 @@ router.post("/", requireAdmin, async (req, res) => {
   
   await setSettings(newSettings);
   
-  // Update pending poll interval for all agents if changed
+  // Update pending poll interval for all agents if changed.
+  // AAUL-Cloud: ne mettre à jour que les agents autorisés par les filtres.
   if (nextPoll && nextPoll !== String(currentPoll)) {
     const pollValue = Number.parseInt(nextPoll, 10);
     if (Number.isFinite(pollValue) && pollValue > 0) {
-      await dbOps.run(
-        "UPDATE agents SET pending_poll_interval_seconds = ?",
-        [pollValue]
-      );
+      const { applyAgentFilters } = await import("../plugins/plugin-loader.js");
+      const allAgents = await dbOps.all("SELECT id FROM agents");
+      const allowed = [];
+      for (const agent of allAgents) {
+        if (await applyAgentFilters(agent, req)) {
+          allowed.push(agent.id);
+        }
+      }
+      if (allowed.length > 0) {
+        const placeholders = allowed.map(() => "?").join(",");
+        await dbOps.run(
+          `UPDATE agents SET pending_poll_interval_seconds = ? WHERE id IN (${placeholders})`,
+          [pollValue, ...allowed]
+        );
+      }
     }
   }
   
