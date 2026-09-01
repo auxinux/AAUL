@@ -600,11 +600,22 @@ export default function Admin() {
           </div>
 
           <div className="space-y-3">
-            <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500 ml-1">Internet Base URL (Optional)</label>
+            <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500 ml-1">
+              {t("admin.internetBaseUrl")}
+            </label>
             <div className="relative group">
               <Globe className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={16} />
-              <input className="input !pl-12" type="url" placeholder="https://aaul.example.com" value={internetBaseUrl} onChange={(e) => setInternetBaseUrl(e.target.value)} />
+              {/* Placeholder stays a generic example on purpose: this is where an
+                  admin types THEIR OWN public URL, not the project's. */}
+              <input
+                className="input !pl-12"
+                type="url"
+                placeholder={t("admin.internetBaseUrlPlaceholder")}
+                value={internetBaseUrl}
+                onChange={(e) => setInternetBaseUrl(e.target.value)}
+              />
             </div>
+            <p className="text-xs text-slate-500">{t("admin.internetBaseUrlHint")}</p>
           </div>
         </div>
 

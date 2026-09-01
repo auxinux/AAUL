@@ -451,7 +451,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the maintainer-facing conventions use
 
 ## Links
 
-- Git: [git.auxinux.ca/aporler/AAUL](https://git.auxinux.ca/aporler/AAUL)
+- Git: [git.auxinux.ca/Auxinux/AAUL](https://git.auxinux.ca/Auxinux/AAUL)
 - Project page: [aaul.auxinux.ca](https://aaul.auxinux.ca)
 - Auxinux wiki: [auxinux.ca/projets/projet-aaul](https://auxinux.ca/projets/projet-aaul?tab=wiki)
 

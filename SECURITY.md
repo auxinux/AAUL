@@ -18,13 +18,15 @@ reporting an issue you suspect is already fixed.
 
 ## Reporting a vulnerability
 
-**Please do not open a public GitHub issue for security problems.**
+**Please do not open a public issue for security problems.**
 
-Use one of these private channels instead:
+AAUL is not hosted on GitHub. Use one of these private channels instead:
 
-1. **GitHub Security Advisories** — preferred:
-   <https://github.com/aporler/AAUL/security/advisories/new>
-2. **Email** — `aporler@gmail.com` with the subject prefix `[AAUL-SECURITY]`.
+1. **Email** — preferred: `aporler@gmail.com`, with the subject prefix
+   `[AAUL-SECURITY]`.
+2. **Private issue** on the project tracker:
+   <https://git.auxinux.ca/Auxinux/AAUL/issues> — mark it private, or send the
+   details by email if you cannot.
 
 Please include, as far as you can:
 

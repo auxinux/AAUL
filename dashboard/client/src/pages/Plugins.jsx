@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { apiFetch, getCsrfToken } from "../lib/api.js";
 import { useI18n } from "../lib/i18n.js";
+import { PROJECT_URL, PROJECT_WIKI_URL } from "../lib/links.js";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 
 const CATEGORY_COLORS = {
@@ -316,7 +317,7 @@ export default function Plugins() {
         </p>
         <div className="flex flex-wrap gap-2">
           <a
-            href="https://github.com/autoupdatelinux/plugins"
+            href={PROJECT_WIKI_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="btn btn-secondary"
@@ -324,7 +325,7 @@ export default function Plugins() {
             {t("plugins.documentation")}
           </a>
           <a
-            href="https://autoupdatelinux.com/pro"
+            href={PROJECT_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="btn btn-primary"
