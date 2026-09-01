@@ -28,7 +28,7 @@ export default function PackagesHub() {
         const data = await apiFetch("/api/agents");
         if (mounted) setAgents(data.agents || []);
       } catch (err) {
-        if (mounted) setError(err.message || "Erreur de chargement");
+        if (mounted) setError(err.message || t("errors.loadFailed"));
       } finally {
         if (mounted) setLoading(false);
       }
@@ -49,35 +49,31 @@ export default function PackagesHub() {
 
   return (
     <div className="space-y-8 animate-fade-in">
-      <div className="card !p-8">
+      <div className="card">
         <div className="flex flex-col gap-4">
           <div className="flex items-center gap-3 text-brand-400">
              <Package size={24} />
-             <h2 className="text-3xl font-extrabold text-white tracking-tight">
-               {t("nav.packages")}
-             </h2>
+             <h2 className="page-title">{t("nav.packages")}</h2>
           </div>
           <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-            <p className="text-slate-400 font-medium max-w-2xl">
-              Pick a device to list, search, and install or uninstall software packages directly from the dashboard.
-            </p>
+            <p className="page-subtitle max-w-2xl">{t("packagesHub.subtitle")}</p>
             <button
-              className="btn btn-primary shrink-0"
+              className="btn btn-primary shrink-0 w-full sm:w-auto"
               onClick={() => navigate("/packages/all")}
             >
               <Package size={16} />
-              Tout voir (flotte)
+              {t("packagesHub.viewFleet")}
             </button>
           </div>
         </div>
       </div>
 
-      <div className="card !p-8 space-y-8">
+      <div className="card space-y-6">
         <div className="relative group">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-brand-400 transition-colors" size={18} />
           <input
             className="input !pl-12"
-            placeholder="Filter by name, host or IP..."
+            placeholder={t("packagesHub.filterPlaceholder")}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
           />
@@ -87,9 +83,10 @@ export default function PackagesHub() {
         {error && <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">{error}</div>}
 
         {!loading && filtered.length === 0 ? (
-          <div className="text-center py-12">
-            <Package size={48} className="text-slate-700 mx-auto mb-4" />
-            <p className="text-sm font-medium text-slate-500">No agents found matching your search.</p>
+          <div className="empty-state">
+            <Package size={44} className="text-slate-700" />
+            <p className="empty-state-title">{t("packagesHub.noAgents")}</p>
+            <p className="empty-state-hint">{t("packagesHub.noAgentsHint")}</p>
           </div>
         ) : null}
 
@@ -121,7 +118,7 @@ export default function PackagesHub() {
               <div className="flex items-center justify-between pt-4 border-t border-white/5">
                  <div className="flex items-center gap-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
                     <Cpu size={12} />
-                    Manage Software
+                    {t("packagesHub.manage")}
                  </div>
                  <ArrowRight size={14} className="text-slate-600 group-hover:text-brand-400 group-hover:translate-x-1 transition-all" />
               </div>

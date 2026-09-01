@@ -26,9 +26,11 @@ import {
   Globe,
   LayoutGrid,
   List,
-  Activity
+  Activity,
+  ShieldAlert
 } from "lucide-react";
 import { apiFetch } from "../lib/api.js";
+import MetricBar, { MetricTrio } from "../components/MetricBar.jsx";
 import { useI18n } from "../lib/i18n.js";
 import StatusBadge from "../components/StatusBadge.jsx";
 import Modal from "../components/Modal.jsx";
@@ -210,6 +212,8 @@ export default function Dashboard() {
   const { t, lang } = useI18n();
   const navigate = useNavigate();
   const [agents, setAgents] = useState([]);
+  // Aggregated vital signs across the fleet (averages + hosts over threshold).
+  const [fleetHealth, setFleetHealth] = useState(null);
   const [latestVersion, setLatestVersion] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -343,6 +347,27 @@ export default function Dashboard() {
   useEffect(() => {
     loadAgents();
   }, [loadAgents]);
+
+  // Fleet health is a separate aggregate query, refreshed on its own slower
+  // cadence — the underlying samples only change every few minutes.
+  useEffect(() => {
+    let mounted = true;
+    const loadHealth = async () => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      try {
+        const data = await apiFetch("/api/agents/metrics/summary");
+        if (mounted) setFleetHealth(data);
+      } catch {
+        if (mounted) setFleetHealth(null);
+      }
+    };
+    loadHealth();
+    const interval = setInterval(loadHealth, 30000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   // Keep the table in sync without full page refreshes.
   useEffect(() => {
@@ -722,6 +747,66 @@ export default function Dashboard() {
     } catch { /* best effort */ }
   };
 
+  // Fleet-wide vital signs, so pressure on any host is visible without
+  // opening every card.
+  const FleetHealthPanel = () => {
+    if (!fleetHealth || fleetHealth.reportingAgents === 0) {
+      return null;
+    }
+    const groups = [
+      { key: "cpu", label: t("metrics.cpu"), items: fleetHealth.pressure?.cpu || [] },
+      { key: "memory", label: t("metrics.memory"), items: fleetHealth.pressure?.memory || [] },
+      { key: "disk", label: t("metrics.disk"), items: fleetHealth.pressure?.disk || [] }
+    ];
+    const anyPressure = groups.some((group) => group.items.length > 0);
+
+    return (
+      <div className="card space-y-5">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/5 pb-4">
+          <h3 className="text-sm font-bold uppercase tracking-[0.3em] text-slate-500">
+            {t("metrics.fleetTitle")}
+          </h3>
+          <span className="text-[10px] font-medium uppercase tracking-widest text-slate-500">
+            {fleetHealth.reportingAgents}/{fleetHealth.totalAgents}
+          </span>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-3">
+          <MetricBar label={t("metrics.cpu")} percent={fleetHealth.averages?.cpuPercent} icon={Cpu} />
+          <MetricBar label={t("metrics.memory")} percent={fleetHealth.averages?.memoryPercent} icon={Activity} />
+          <MetricBar label={t("metrics.disk")} percent={fleetHealth.averages?.diskPercent} icon={Server} />
+        </div>
+
+        {anyPressure ? (
+          <div className="space-y-3 pt-3 border-t border-white/5">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-amber-400">
+              {t("metrics.underPressure")}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {groups.flatMap((group) =>
+                group.items.map((item) => (
+                  <button
+                    key={`${group.key}-${item.id}`}
+                    type="button"
+                    onClick={() => navigate(`/agents/${item.id}`)}
+                    className="badge badge-warn !py-1.5 !px-3 hover:bg-amber-500/25 transition-colors"
+                    title={item.mount || undefined}
+                  >
+                    {item.name} · {group.label} {Math.round(item.value)}%
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        ) : (
+          <p className="text-xs text-emerald-400 pt-3 border-t border-white/5">
+            {t("metrics.allHealthy")}
+          </p>
+        )}
+      </div>
+    );
+  };
+
   const HostInfoPanel = ({ stats: hostStats }) => (
     <div className="card !p-6 space-y-6">
       <div className="flex items-center justify-between border-b border-white/5 pb-4">
@@ -837,11 +922,13 @@ export default function Dashboard() {
         </div>
       </div>
 
+      <FleetHealthPanel />
+
       {/* Stats Cards */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard label={t("dashboard.stats.total")} value={stats.total} color="brand" icon={Server} />
         <StatCard label={t("dashboard.stats.online")} value={stats.online} color="emerald" icon={CheckCircle2} />
-        <StatCard label="Update Required" value={stats.updatesRequired} color="amber" icon={ArrowUpCircle} />
+        <StatCard label={t("dashboard.stats.updateRequired")} value={stats.updatesRequired} color="amber" icon={ArrowUpCircle} />
         <StatCard label={t("dashboard.stats.rebootRequired")} value={stats.rebootRequired} color="red" icon={AlertCircle} />
       </div>
 
@@ -1132,7 +1219,7 @@ export default function Dashboard() {
                               </span>
                             </div>
                             <div className="flex justify-between items-center gap-2">
-                              <span className="text-slate-500 font-medium">Status</span>
+                              <span className="text-slate-500 font-medium">{t("dashboard.table.status")}</span>
                               <div className="flex items-center gap-1.5">
                                 <span className={`badge ${state.className} !px-2 !py-0.5 text-[9px] font-bold`}>
                                   {state.label}
@@ -1143,7 +1230,7 @@ export default function Dashboard() {
                               </div>
                             </div>
                             <div className="flex justify-between items-center gap-2">
-                              <span className="text-slate-500 font-medium">Contact</span>
+                              <span className="text-slate-500 font-medium">{t("dashboard.table.lastSeen")}</span>
                               <span className="text-slate-300 font-semibold text-[11px]">
                                 {formatDate(agent.lastSeenAt, lang)}
                               </span>
@@ -1151,22 +1238,43 @@ export default function Dashboard() {
                           </div>
                         </div>
 
+                        {/* Live vital signs, reported on every heartbeat. Kept
+                            compact so a card still reads at a glance. */}
+                        <div className="mt-3 pt-3 border-t border-white/5">
+                          <MetricTrio
+                            metrics={agent.metrics}
+                            compact
+                            labels={{
+                              cpu: t("metrics.cpu"),
+                              memory: t("metrics.memory"),
+                              disk: t("metrics.disk")
+                            }}
+                            noDataLabel={t("metrics.noData")}
+                          />
+                        </div>
+
                         {/* Card Footer */}
-                        <div className="mt-4 pt-3 border-t border-white/5 flex flex-wrap items-center justify-between gap-2">
+                        <div className="mt-3 pt-3 border-t border-white/5 flex flex-wrap items-center justify-between gap-2">
                           <div className="flex flex-wrap gap-1">
+                            {agent.securityUpdatesAvailable > 0 && (
+                              <span className="badge badge-security text-[9px] font-extrabold" title={t("packagesAll.tileSecurity")}>
+                                <ShieldAlert size={10} />
+                                {agent.securityUpdatesAvailable}
+                              </span>
+                            )}
                             {agent.updatesAvailable > 0 && (
-                              <span className="badge bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[9px] font-extrabold">
-                                {agent.updatesAvailable} MAJ
+                              <span className="badge badge-warn text-[9px] font-extrabold">
+                                {agent.updatesAvailable} {t("dashboard.updatesShort")}
                               </span>
                             )}
                             {agent.rebootRequired && (
                               <span className="badge bg-red-500/10 text-red-400 border border-red-500/20 text-[9px] font-extrabold">
-                                REBOOT
+                                {t("dashboard.badgeReboot")}
                               </span>
                             )}
                             {agent.isOutdated && (
                               <span className="badge bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[9px] font-extrabold">
-                                OBSOLÈTE
+                                {t("dashboard.badgeOutdated")}
                               </span>
                             )}
                           </div>
@@ -1187,7 +1295,7 @@ export default function Dashboard() {
                               }}
                             >
                               <Zap size={11} className="text-brand-400" />
-                              <span>Lancer</span>
+                              <span>{t("dashboard.actions.runNow")}</span>
                             </button>
                           )}
                         </div>

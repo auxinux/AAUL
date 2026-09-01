@@ -507,6 +507,7 @@ export default function Admin() {
   const [publicIp, setPublicIp] = useState("");
   const [internetBaseUrl, setInternetBaseUrl] = useState("");
   const [defaultPollSeconds, setDefaultPollSeconds] = useState("15");
+  const [metricsRetentionDays, setMetricsRetentionDays] = useState("30");
   const [serverConfig, setServerConfig] = useState({
     http: { enabled: true, apiPort: 3001, webPort: 5173 },
     https: { enabled: false, apiPort: 3002, webPort: 5174 },
@@ -534,6 +535,7 @@ export default function Admin() {
       setPublicIp(settings.publicIp || "");
       setInternetBaseUrl(settings.internetBaseUrl || "");
       setDefaultPollSeconds(settings.defaultPollSeconds || "15");
+      setMetricsRetentionDays(settings.metricsRetentionDays || "30");
       if (serverRes.ok && serverRes.config) setServerConfig(serverRes.config);
       setIps(ipsRes.ips || []);
     } catch (err) {
@@ -550,7 +552,12 @@ export default function Admin() {
     try {
       await apiFetch("/api/settings", {
         method: "POST",
-        body: JSON.stringify({ publicIp, internetBaseUrl, defaultPollSeconds })
+        body: JSON.stringify({
+          publicIp,
+          internetBaseUrl,
+          defaultPollSeconds,
+          metricsRetentionDays
+        })
       });
       setMessage("Settings updated successfully.");
     } catch (err) {
@@ -566,9 +573,9 @@ export default function Admin() {
         <div className="flex flex-col gap-4">
            <div className="flex items-center gap-3 text-brand-400">
               <Shield size={24} />
-              <h2 className="text-3xl font-extrabold text-white tracking-tight">{t("admin.title")}</h2>
+              <h2 className="page-title">{t("admin.title")}</h2>
            </div>
-           <p className="text-slate-400 font-medium max-w-2xl">{t("admin.subtitle")}</p>
+           <p className="page-subtitle max-w-2xl">{t("admin.subtitle")}</p>
         </div>
       </div>
 
@@ -610,14 +617,37 @@ export default function Admin() {
       </div>
 
       <div className="grid gap-8 md:grid-cols-2">
-         <div className="card !p-8 space-y-6">
+         <div className="card !p-6 sm:!p-8 space-y-6">
            <div className="flex items-center gap-3 text-brand-400 border-b border-white/5 pb-4">
              <Clock size={20} />
-             <h3 className="text-lg font-bold text-white tracking-tight">Agent Polling</h3>
+             <h3 className="text-lg font-bold text-white tracking-tight">{t("admin.pollingTitle")}</h3>
            </div>
            <div className="space-y-3">
-             <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500 ml-1">Interval (seconds)</label>
-             <input className="input" value={defaultPollSeconds} onChange={(e) => setDefaultPollSeconds(e.target.value)} />
+             <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500 ml-1">
+               {t("admin.pollInterval")}
+             </label>
+             <input
+               className="input"
+               inputMode="numeric"
+               value={defaultPollSeconds}
+               onChange={(e) => setDefaultPollSeconds(e.target.value)}
+             />
+             <p className="text-xs text-slate-500">{t("admin.pollHint")}</p>
+           </div>
+
+           <div className="space-y-3 pt-4 border-t border-white/5">
+             <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500 ml-1">
+               {t("metrics.retentionDays")}
+             </label>
+             <input
+               className="input"
+               type="number"
+               min="1"
+               max="3650"
+               value={metricsRetentionDays}
+               onChange={(e) => setMetricsRetentionDays(e.target.value)}
+             />
+             <p className="text-xs text-slate-500">{t("metrics.retentionHint")}</p>
            </div>
          </div>
 

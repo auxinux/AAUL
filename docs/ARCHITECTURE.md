@@ -68,7 +68,12 @@ Important agent libraries:
 - `agent/app/lib/package_manager.py`
   Native update commands per operating system.
 - `agent/app/lib/system_info.py`
-  Inventory collection returned to the dashboard.
+  Full inventory collection, returned on demand via FETCH_INFO.
+- `agent/app/lib/metrics.py`
+  Lightweight vital signs (CPU, memory, disk, load) sent on every poll.
+  Deliberately separate from `system_info.py`: cheap enough for a heartbeat.
+- `agent/app/lib/logs.py`
+  Log listing, reading, and retention (age + total size limits).
 - `agent/app/lib/systemd.py`
   Service management abstraction across Linux, macOS, and Windows.
 - `agent/app/lib/updater.py`
@@ -105,6 +110,11 @@ Typical loop:
 2. dashboard returns the next queued command, if any
 3. agent executes the command locally
 4. agent reports the result to `/api/agent/command-result`
+
+The poll response also carries configuration the agent applies without a command
+round-trip: `localWeb` (local UI settings) and `logs` (retention policy). The
+poll request carries `metrics` and `logStats`, which the dashboard persists on
+the agent row and samples into `agent_metrics` for history.
 
 This keeps the system simple and firewall-friendly because the dashboard never needs direct shell access to the managed host.
 

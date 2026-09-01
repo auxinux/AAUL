@@ -11,10 +11,39 @@
 body {
   font-family: "Inter", system-ui, sans-serif;
   @apply bg-ink-950 text-slate-200 antialiased;
-  background-image: 
+  background-image:
     radial-gradient(circle at 50% -20%, rgba(12, 129, 235, 0.15), transparent 70%),
     radial-gradient(circle at 0% 0%, rgba(51, 240, 181, 0.05), transparent 40%);
-  min-height: 100vh;
+  background-attachment: fixed;
+  /* 100dvh accounts for mobile browser chrome that 100vh ignores, which
+     otherwise leaves a scrollable dead zone under the fold on iOS/Android. */
+  min-height: 100dvh;
+  /* Prevent iOS from re-flowing text sizes when a device is rotated. */
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Anything the user can tap needs a finger-sized target, not a mouse-sized one.
+   44px is the Apple/WCAG minimum; applied only on touch devices so desktop
+   density is unaffected. */
+@media (pointer: coarse) {
+  button,
+  a.nav-pill,
+  [role="button"] {
+    min-height: 44px;
+  }
+}
+
+/* Respect the user's motion preference: the fade-ins and pulses below are
+   decorative, and vestibular disorders make them actively unpleasant. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 .glass {
@@ -37,8 +66,44 @@ body {
   @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold tracking-wide uppercase;
 }
 
+.badge-security {
+  @apply bg-red-500/15 text-red-300 border border-red-500/30;
+}
+
+.badge-neutral {
+  @apply bg-white/5 text-slate-400 border border-white/10;
+}
+
+.badge-warn {
+  @apply bg-amber-500/15 text-amber-300 border border-amber-500/30;
+}
+
+.badge-ok {
+  @apply bg-emerald-500/15 text-emerald-300 border border-emerald-500/30;
+}
+
 .btn {
-  @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-all active:scale-95 disabled:opacity-50 disabled:pointer-events-none;
+  @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-all active:scale-95 disabled:opacity-50 disabled:pointer-events-none;
+  /* Keyboard users must be able to see where they are. */
+  @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-ink-950;
+}
+
+/* Segmented control (view switchers, tabs). Scrolls sideways on narrow screens
+   instead of wrapping into an unreadable stack. */
+.segmented {
+  @apply flex p-1 rounded-xl bg-black/20 border border-white/5 w-full sm:w-fit overflow-x-auto no-scrollbar;
+}
+
+.segmented-item {
+  @apply shrink-0 px-3 sm:px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all whitespace-nowrap;
+}
+
+.segmented-item-active {
+  @apply bg-brand-500 text-white shadow-glow;
+}
+
+.segmented-item-inactive {
+  @apply text-slate-500 hover:text-slate-300;
 }
 
 .btn-primary {
@@ -54,7 +119,31 @@ body {
 }
 
 .card {
-  @apply glass rounded-2xl p-6;
+  @apply glass rounded-2xl p-4 sm:p-6;
+}
+
+/* Section heading used at the top of every page: one consistent shape instead
+   of each page inventing its own font sizes. */
+.page-title {
+  @apply text-2xl sm:text-3xl font-extrabold text-white tracking-tight;
+}
+
+.page-subtitle {
+  @apply text-sm sm:text-base text-slate-400 font-medium;
+}
+
+/* Empty states: the moment a user is most likely to be confused, so they get
+   room, an icon, and a sentence that says what to do next. */
+.empty-state {
+  @apply flex flex-col items-center justify-center gap-3 py-12 px-6 text-center;
+}
+
+.empty-state-title {
+  @apply text-sm font-semibold text-slate-300;
+}
+
+.empty-state-hint {
+  @apply text-xs text-slate-500 max-w-sm;
 }
 
 .input {
@@ -122,4 +211,54 @@ body {
 
 ::-webkit-scrollbar-thumb {
   @apply bg-white/10 rounded-full hover:bg-white/20;
+}
+
+
+/* Referenced by the sidebar nav since day one but never actually defined —
+   without it the nav shows a scrollbar over the glass panel. */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Horizontal scroll hint: tables that overflow on mobile fade at the right edge
+   so it is visible that there is more content sideways. */
+.scroll-fade-x {
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 24px), transparent 100%);
+  mask-image: linear-gradient(to right, black calc(100% - 24px), transparent 100%);
+}
+
+/* Devices with a notch / home indicator (iPhone, some Android) need padding or
+   the bottom row of a page sits under the system gesture bar. */
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.safe-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+/* Turn a data table into stacked cards below the md breakpoint. Each <td>
+   carries data-label, which is rendered as the row's field name. */
+@media (max-width: 767px) {
+  .stack-table thead {
+    @apply hidden;
+  }
+
+  .stack-table tbody tr {
+    @apply block mb-3 rounded-xl border border-white/5 bg-white/[0.02] p-3;
+  }
+
+  .stack-table tbody td {
+    @apply flex items-center justify-between gap-4 border-0 px-0 py-1.5 text-sm;
+  }
+
+  .stack-table tbody td::before {
+    content: attr(data-label);
+    @apply text-[10px] font-bold uppercase tracking-widest text-slate-500 shrink-0;
+  }
 }

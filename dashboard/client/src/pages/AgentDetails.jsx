@@ -18,11 +18,15 @@ import {
   Copy,
   Check,
   ExternalLink,
-  ClipboardList
+  ClipboardList,
+  Gauge,
+  MemoryStick,
+  Users as UsersIcon
 } from "lucide-react";
 import { apiFetch } from "../lib/api.js";
 import { useI18n } from "../lib/i18n.js";
 import DonutChart from "../components/DonutChart.jsx";
+import MetricBar, { Sparkline } from "../components/MetricBar.jsx";
 import { LinuxIcon, AppleIcon, WindowsIcon } from "../components/OsIcons.jsx";
 
 const POLL_INTERVAL_MS = 2000;
@@ -101,6 +105,10 @@ export default function AgentDetails() {
   const allowedPorts = [8080, 8090, 8180, 8190];
 
   // Monitoring (down detection) state
+  // Metric history for the sparklines. Loaded separately from the agent record
+  // because it is a different shape and a different refresh cadence.
+  const [metricHistory, setMetricHistory] = useState([]);
+
   const [monitorEnabled, setMonitorEnabled] = useState(true);
   const [monitorSaving, setMonitorSaving] = useState(false);
 
@@ -261,6 +269,28 @@ export default function AgentDetails() {
       ? info?.rebootRequired
       : agent?.rebootRequired;
 
+  useEffect(() => {
+    let mounted = true;
+    const loadHistory = async () => {
+      try {
+        const data = await apiFetch(`/api/agents/${id}/metrics/history?hours=24`);
+        if (mounted) setMetricHistory(data.points || []);
+      } catch {
+        if (mounted) setMetricHistory([]);
+      }
+    };
+    loadHistory();
+    // History moves slowly (one sample per 5 minutes server-side), so a
+    // one-minute refresh is more than enough.
+    const interval = setInterval(loadHistory, 60000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [id]);
+
+  const metrics = agent?.metrics || null;
+
   return (
     <div className="space-y-8 animate-fade-in">
       {/* Header Card */}
@@ -335,6 +365,123 @@ export default function AgentDetails() {
          </div>
       )}
       {infoError && <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">{infoError}</div>}
+
+      {/* Live vital signs — the numbers that answer "is this host healthy right
+          now?", refreshed on every agent check-in rather than on demand. */}
+      <div className="card !p-6 sm:!p-8 space-y-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/5 pb-4">
+          <div className="flex items-center gap-3">
+            <Gauge size={18} className="text-brand-400" />
+            <div>
+              <h3 className="text-sm font-bold uppercase tracking-[0.3em] text-slate-500">
+                {t("metrics.title")}
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">{t("metrics.subtitle")}</p>
+            </div>
+          </div>
+          {agent?.metricsUpdatedAt && (
+            <span className="text-[10px] font-medium uppercase tracking-widest text-slate-500">
+              {t("metrics.updatedAt", { time: formatDate(agent.metricsUpdatedAt, lang) })}
+            </span>
+          )}
+        </div>
+
+        {!metrics ? (
+          <div className="empty-state">
+            <Gauge size={36} className="text-slate-700" />
+            <p className="empty-state-title">{t("metrics.noData")}</p>
+            <p className="empty-state-hint">{t("metrics.noDataHint")}</p>
+          </div>
+        ) : (
+          <>
+            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="card !bg-white/[0.02] !p-5 space-y-3">
+                <MetricBar label={t("metrics.cpu")} percent={metrics.cpuPercent} icon={Cpu} />
+                <div className="flex items-center justify-between text-[10px] text-slate-500">
+                  <span>{t("metrics.load")}</span>
+                  <span className="font-mono text-slate-400">
+                    {metrics.loadAverage
+                      ? `${metrics.loadAverage["1m"] ?? "—"} / ${metrics.loadAverage["5m"] ?? "—"} / ${metrics.loadAverage["15m"] ?? "—"}`
+                      : "—"}
+                  </span>
+                </div>
+                <Sparkline
+                  points={metricHistory.map((point) => point.cpuPercent)}
+                  label={t("metrics.cpu")}
+                  width={220}
+                />
+              </div>
+
+              <div className="card !bg-white/[0.02] !p-5 space-y-3">
+                <MetricBar
+                  label={t("metrics.memory")}
+                  percent={metrics.memory?.percent}
+                  icon={MemoryStick}
+                  hint={
+                    metrics.memory?.totalBytes
+                      ? `${formatBytes(metrics.memory.usedBytes)} / ${formatBytes(metrics.memory.totalBytes)}`
+                      : null
+                  }
+                />
+                {metrics.swap && (
+                  <MetricBar label={t("metrics.swap")} percent={metrics.swap.percent} compact />
+                )}
+                <Sparkline
+                  points={metricHistory.map((point) => point.memoryPercent)}
+                  label={t("metrics.memory")}
+                  width={220}
+                  color="#33f0b5"
+                />
+              </div>
+
+              <div className="card !bg-white/[0.02] !p-5 space-y-3">
+                <MetricBar
+                  label={t("metrics.disk")}
+                  percent={metrics.disk?.root?.percent}
+                  icon={HardDrive}
+                  hint={
+                    metrics.disk?.root?.totalBytes
+                      ? `${metrics.disk.root.mount} · ${formatBytes(metrics.disk.root.freeBytes)} ${t("details.available")}`
+                      : null
+                  }
+                />
+                {/* Only worth showing when it is not the same volume as /. */}
+                {metrics.disk?.busiest && metrics.disk.busiest.mount !== metrics.disk.root?.mount && (
+                  <MetricBar
+                    label={metrics.disk.busiest.mount}
+                    percent={metrics.disk.busiest.percent}
+                    compact
+                  />
+                )}
+                <Sparkline
+                  points={metricHistory.map((point) => point.diskPercent)}
+                  label={t("metrics.disk")}
+                  width={220}
+                  color="#f59e0b"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-x-8 gap-y-2 text-xs text-slate-500 pt-2 border-t border-white/5">
+              {metrics.cpuCount != null && (
+                <span className="flex items-center gap-2">
+                  <Cpu size={13} /> {metrics.cpuCount} {t("details.threads")}
+                </span>
+              )}
+              {metrics.processCount != null && (
+                <span className="flex items-center gap-2">
+                  <Activity size={13} /> {metrics.processCount} {t("metrics.processes")}
+                </span>
+              )}
+              {metrics.loggedInUsers != null && (
+                <span className="flex items-center gap-2">
+                  <UsersIcon size={13} /> {metrics.loggedInUsers} {t("metrics.sessions")}
+                </span>
+              )}
+            </div>
+          </>
+        )}
+      </div>
 
       <div className="grid gap-8 lg:grid-cols-[1fr_380px]">
         {/* Left Column: Core System Info */}

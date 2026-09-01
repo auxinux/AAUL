@@ -1,20 +1,22 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { 
-  LayoutDashboard, 
-  PlusCircle, 
-  Package, 
-  Clock, 
-  ClipboardList, 
-  Users, 
-  Plug, 
-  Settings, 
-  LogOut, 
-  Menu, 
+import {
+  LayoutDashboard,
+  PlusCircle,
+  Package,
+  Clock,
+  ClipboardList,
+  Users,
+  Plug,
+  Settings,
+  LogOut,
+  Menu,
   X,
   Cpu,
   Activity,
-  Globe
+  Globe,
+  PanelLeftClose,
+  PanelLeftOpen
 } from "lucide-react";
 import { useAuth } from "./AuthProvider.jsx";
 import { useI18n } from "../lib/i18n.js";
@@ -23,14 +25,68 @@ import LanguageToggle from "./LanguageToggle.jsx";
 import Footer from "./Footer.jsx";
 import PasswordChangeGate from "./PasswordChangeGate.jsx";
 
+const COLLAPSE_STORAGE_KEY = "aaul.sidebarCollapsed";
+
+// The host widget refreshes on a timer. 2 s was fine on a desktop tab, but on a
+// phone it is a request every two seconds against the battery for a number
+// nobody is watching — 5 s reads the same and costs less.
+const HOST_STATS_INTERVAL_MS = 5000;
+
 export default function Layout() {
   const { user, logout } = useAuth();
   const { t } = useI18n();
   const location = useLocation();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  // Two independent states, because they are two different things:
+  //  - `mobileNavOpen` is a drawer overlaying the page on small screens, and
+  //    must start CLOSED or the app opens with its own menu covering it;
+  //  - `desktopCollapsed` is the icons-only rail on large screens, remembered
+  //    across sessions because it is a lasting preference, not a transient one.
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [desktopCollapsed, setDesktopCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem(COLLAPSE_STORAGE_KEY) === "true";
+  });
+
   const [pluginNavItems, setPluginNavItems] = useState([]);
   const [topbarWidgets, setTopbarWidgets] = useState([]);
   const [hostStats, setHostStats] = useState(null);
+
+  const toggleDesktopCollapsed = () => {
+    setDesktopCollapsed((collapsed) => {
+      const next = !collapsed;
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(COLLAPSE_STORAGE_KEY, String(next));
+      }
+      return next;
+    });
+  };
+
+  // Navigating on a phone should reveal the page you just asked for, not leave
+  // the drawer sitting on top of it.
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [location.pathname]);
+
+  // While the drawer is open it owns the screen; letting the page scroll behind
+  // it is the classic mobile-menu bug.
+  useEffect(() => {
+    if (typeof document === "undefined") return undefined;
+    document.body.style.overflow = mobileNavOpen ? "hidden" : "";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [mobileNavOpen]);
+
+  // Escape closes the drawer — expected of any overlay.
+  useEffect(() => {
+    if (!mobileNavOpen) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") setMobileNavOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [mobileNavOpen]);
 
   // Fetch plugin-registered nav items
   useEffect(() => {
@@ -59,6 +115,8 @@ export default function Layout() {
   useEffect(() => {
     let mounted = true;
     const loadStats = async () => {
+      // Polling a background tab is wasted work and, on mobile, wasted battery.
+      if (typeof document !== "undefined" && document.hidden) return;
       try {
         const data = await apiFetch("/api/showinfohost/stats");
         if (mounted) setHostStats(data);
@@ -67,7 +125,7 @@ export default function Layout() {
       }
     };
     loadStats();
-    const interval = setInterval(loadStats, 2000);
+    const interval = setInterval(loadStats, HOST_STATS_INTERVAL_MS);
     return () => {
       mounted = false;
       clearInterval(interval);
@@ -76,7 +134,7 @@ export default function Layout() {
 
   const formatNet = (stats) => {
     if (!stats?.net || stats.net.supported === false) {
-      return "-- / -- KB/s";
+      return "-- / --";
     }
     const rx = stats.net.rxKbps ?? 0;
     const tx = stats.net.txKbps ?? 0;
@@ -84,33 +142,37 @@ export default function Layout() {
   };
 
   const renderWidget = (widget, idx) => {
-    if (widget.type === "host-info" && widget.variant === "topbar") {
-      return (
-        <div key={`${widget.plugin}-${idx}`} className="glass rounded-2xl px-4 py-3 flex items-center justify-between gap-6">
-          <div className="flex items-center gap-3">
-             <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-             <span className="text-sm font-semibold text-white tracking-wider">
-               {hostStats?.time || "--:--:--"}
-             </span>
+    if (widget.type !== "host-info" || widget.variant !== "topbar") {
+      return null;
+    }
+    return (
+      <div
+        key={`${widget.plugin}-${idx}`}
+        className="glass rounded-2xl px-3 sm:px-4 py-2.5 flex items-center gap-4 sm:gap-6 overflow-x-auto no-scrollbar"
+      >
+        <div className="flex items-center gap-2 shrink-0">
+          <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+          <span className="text-sm font-semibold text-white tracking-wider tabular-nums">
+            {hostStats?.time || "--:--:--"}
+          </span>
+        </div>
+        <div className="flex items-center gap-4 sm:gap-6 text-[11px] font-medium text-slate-400 uppercase tracking-widest shrink-0">
+          <div className="flex items-center gap-2">
+            <Cpu size={14} className="text-brand-400" />
+            <span>CPU <span className="text-slate-200 tabular-nums">{hostStats?.cpu ?? "--"}%</span></span>
           </div>
-          <div className="flex items-center gap-6 text-[11px] font-medium text-slate-400 uppercase tracking-widest">
-            <div className="flex items-center gap-2">
-              <Cpu size={14} className="text-brand-400" />
-              <span>CPU <span className="text-slate-200">{hostStats?.cpu ?? "--"}%</span></span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Activity size={14} className="text-brand-400" />
-              <span>RAM <span className="text-slate-200">{hostStats?.memPercent ?? "--"}%</span></span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Globe size={14} className="text-brand-400" />
-              <span>NET <span className="text-slate-200">{formatNet(hostStats)}</span></span>
-            </div>
+          <div className="flex items-center gap-2">
+            <Activity size={14} className="text-brand-400" />
+            <span>RAM <span className="text-slate-200 tabular-nums">{hostStats?.memPercent ?? "--"}%</span></span>
+          </div>
+          {/* Network is the least critical of the three: first to go on a phone. */}
+          <div className="hidden sm:flex items-center gap-2">
+            <Globe size={14} className="text-brand-400" />
+            <span>NET <span className="text-slate-200 tabular-nums">{formatNet(hostStats)}</span></span>
           </div>
         </div>
-      );
-    }
-    return null;
+      </div>
+    );
   };
 
   const navItems = useMemo(() => {
@@ -124,50 +186,102 @@ export default function Layout() {
       { label: t("nav.plugins"), to: "/plugins", icon: Plug },
       { label: t("nav.admin"), to: "/admin", icon: Settings }
     ];
-    // Add plugin-registered nav items
     for (const p of pluginNavItems) {
       items.push({ label: p.label, href: p.href, icon: p.icon || Plug });
     }
     return items;
   }, [t, pluginNavItems]);
 
+  // On desktop the collapsed rail hides labels; on mobile the drawer is always
+  // full-width, so labels are always shown there.
+  const labelClass = desktopCollapsed ? "lg:hidden" : "";
+
   return (
     <div className="min-h-screen flex flex-col">
       <PasswordChangeGate />
-      
+
+      {/* Mobile header: always reachable, so the menu is never trapped. */}
+      <header className="lg:hidden sticky top-0 z-30 safe-top glass border-b border-white/5">
+        <div className="flex items-center justify-between gap-3 px-4 py-3">
+          <button
+            type="button"
+            className="p-2 -ml-2 rounded-xl text-slate-300 hover:bg-white/5 transition-colors"
+            onClick={() => setMobileNavOpen(true)}
+            aria-label={t("nav.showMenu")}
+            aria-expanded={mobileNavOpen}
+          >
+            <Menu size={22} />
+          </button>
+          <div className="min-w-0 text-center">
+            <p className="text-[9px] uppercase font-bold tracking-[0.3em] text-brand-400 leading-none">
+              {t("nav.control")}
+            </p>
+            <h1 className="text-sm font-bold text-white truncate">{t("app.shortName")}</h1>
+          </div>
+          <LanguageToggle />
+        </div>
+      </header>
+
       <div className="flex-1 mx-auto w-full max-w-[1440px] flex flex-col lg:flex-row gap-0 lg:gap-8 px-0 lg:px-8 py-0 lg:py-10">
-        
-        {/* Sidebar */}
-        <aside className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0 lg:w-20'} fixed inset-y-0 left-0 z-40 w-72 lg:static lg:z-0 transition-all duration-300 ease-in-out`}>
-          <div className="h-full glass lg:rounded-3xl flex flex-col p-6 overflow-hidden">
+
+        {/* Backdrop: tapping outside the drawer closes it. */}
+        {mobileNavOpen && (
+          <div
+            className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm lg:hidden animate-fade-in"
+            onClick={() => setMobileNavOpen(false)}
+            aria-hidden="true"
+          />
+        )}
+
+        {/* Sidebar: an off-canvas drawer on mobile, a static column on desktop. */}
+        <aside
+          className={`${mobileNavOpen ? "translate-x-0" : "-translate-x-full"} ${
+            desktopCollapsed ? "lg:w-20" : "lg:w-72"
+          } fixed inset-y-0 left-0 z-50 w-[85vw] max-w-xs lg:static lg:z-0 lg:translate-x-0 lg:shrink-0 transition-transform duration-300 ease-in-out`}
+          aria-label={t("nav.control")}
+        >
+          <div className="h-full glass lg:rounded-3xl flex flex-col p-5 sm:p-6 overflow-hidden safe-top safe-bottom">
             {/* Logo Section */}
-            <div className="mb-10 flex items-center justify-between">
-              <div className={`${!sidebarOpen && 'lg:hidden'} transition-opacity duration-300`}>
+            <div className="mb-8 flex items-center justify-between gap-2">
+              <div className={`${labelClass} min-w-0 transition-opacity duration-300`}>
                 <p className="text-[10px] uppercase font-bold tracking-[0.3em] text-brand-400 mb-1">
                   {t("nav.control")}
                 </p>
-                <h1 className="text-xl font-bold text-white tracking-tight">
+                <h1 className="text-lg font-bold text-white tracking-tight truncate">
                   {t("app.name")}
                 </h1>
               </div>
-              <button 
-                onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="p-2 rounded-xl hover:bg-white/5 transition-colors text-slate-400 lg:hidden"
+              <button
+                type="button"
+                onClick={() => setMobileNavOpen(false)}
+                className="p-2 rounded-xl hover:bg-white/5 transition-colors text-slate-400 lg:hidden shrink-0"
+                aria-label={t("nav.hide")}
               >
                 <X size={20} />
               </button>
+              <button
+                type="button"
+                onClick={toggleDesktopCollapsed}
+                className="hidden lg:flex p-2 rounded-xl hover:bg-white/5 transition-colors text-slate-400 shrink-0"
+                aria-label={desktopCollapsed ? t("nav.showMenu") : t("nav.hide")}
+                title={desktopCollapsed ? t("nav.showMenu") : t("nav.hide")}
+              >
+                {desktopCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+              </button>
             </div>
 
-            {/* Nav Items */}
-            <nav className="flex flex-col gap-1.5 max-h-[calc(100vh-22rem)] overflow-y-auto no-scrollbar">
+            {/* Nav Items — flex-1 lets the list take the space actually left over
+                instead of a hardcoded viewport calculation that breaks as soon as
+                a plugin adds a nav entry. */}
+            <nav className="flex-1 flex flex-col gap-1.5 overflow-y-auto no-scrollbar -mx-1 px-1">
               {navItems.map((item) => {
                 const Icon = item.icon;
-                const isExternal = !!item.href;
-                
+                const isExternal = Boolean(item.href);
+
                 const linkContent = (
                   <>
                     <Icon size={18} className="shrink-0" />
-                    <span className={`${!sidebarOpen && 'lg:hidden'} transition-all duration-300 truncate`}>
+                    <span className={`${labelClass} transition-all duration-300 truncate`}>
                       {item.label}
                     </span>
                   </>
@@ -179,6 +293,7 @@ export default function Layout() {
                       key={item.href}
                       href={item.href}
                       className="nav-pill nav-pill-inactive"
+                      title={desktopCollapsed ? item.label : undefined}
                     >
                       {linkContent}
                     </a>
@@ -189,6 +304,7 @@ export default function Layout() {
                   <NavLink
                     key={item.to}
                     to={item.to}
+                    title={desktopCollapsed ? item.label : undefined}
                     className={({ isActive }) =>
                       `nav-pill ${isActive ? "nav-pill-active" : "nav-pill-inactive"}`
                     }
@@ -200,46 +316,41 @@ export default function Layout() {
             </nav>
 
             {/* User & Logout */}
-            <div className="mt-8 pt-6 border-t border-white/5 flex flex-col gap-4 shrink-0">
-              <div className={`${!sidebarOpen && 'lg:hidden'} transition-opacity duration-300`}>
-                <p className="text-xs text-slate-500 mb-1">Signed in as</p>
-                <p className="text-sm font-semibold text-white truncate">{user?.username || "-"}</p>
+            <div className="mt-6 pt-5 border-t border-white/5 flex flex-col gap-3 shrink-0">
+              <div className={`${labelClass} transition-opacity duration-300 min-w-0`}>
+                <p className="text-xs text-slate-500 mb-0.5">{t("nav.signedInAs")}</p>
+                <p className="text-sm font-semibold text-white truncate">{user?.username || "—"}</p>
               </div>
-              <button 
-                onClick={logout} 
+              <button
+                type="button"
+                onClick={logout}
                 className="flex items-center gap-3 w-full px-4 py-2.5 rounded-xl text-sm font-medium text-red-400 hover:bg-red-500/10 transition-colors"
+                title={desktopCollapsed ? t("nav.logout") : undefined}
               >
-                <LogOut size={18} />
-                <span className={`${!sidebarOpen && 'lg:hidden'}`}>Logout</span>
+                <LogOut size={18} className="shrink-0" />
+                <span className={labelClass}>{t("nav.logout")}</span>
               </button>
             </div>
           </div>
         </aside>
 
         {/* Main Content */}
-        <main className="flex-1 min-w-0 p-6 lg:p-0 flex flex-col gap-6">
-          {/* Top Bar */}
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
-              {!sidebarOpen && (
-                <button
-                  className="p-2.5 rounded-xl glass text-slate-400 hover:text-white transition-colors"
-                  onClick={() => setSidebarOpen(true)}
-                >
-                  <Menu size={20} />
-                </button>
-              )}
-              {topbarWidgets.length > 0 && (
-                <div className="hidden md:block">
-                  {topbarWidgets.map((widget, idx) => renderWidget(widget, idx))}
-                </div>
-              )}
-            </div>
-            
-            <div className="flex items-center gap-3">
+        <main className="flex-1 min-w-0 p-4 sm:p-6 lg:p-0 flex flex-col gap-5 sm:gap-6 safe-bottom">
+          {/* Desktop top bar. On mobile the sticky header above already covers
+              navigation and language, so this row only appears from lg up. */}
+          {topbarWidgets.length > 0 && (
+            <div className="hidden lg:flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                {topbarWidgets.map((widget, idx) => renderWidget(widget, idx))}
+              </div>
               <LanguageToggle />
             </div>
-          </div>
+          )}
+          {topbarWidgets.length === 0 && (
+            <div className="hidden lg:flex items-center justify-end">
+              <LanguageToggle />
+            </div>
+          )}
 
           {/* Page Content */}
           <div className="flex-1 animate-fade-in">

@@ -181,6 +181,19 @@ export async function initDb() {
   if (!agentColumnNames.has("packages_json")) {
     await run("ALTER TABLE agents ADD COLUMN packages_json TEXT");
   }
+  // Live vital signs (CPU / memory / disk) sent with every poll. Distinct from
+  // last_info_json, which is the expensive inventory refreshed on demand only.
+  if (!agentColumnNames.has("metrics_json")) {
+    await run("ALTER TABLE agents ADD COLUMN metrics_json TEXT");
+  }
+  if (!agentColumnNames.has("metrics_updated_at")) {
+    await run("ALTER TABLE agents ADD COLUMN metrics_updated_at TEXT");
+  }
+  // Log-directory footprint reported by the agent (file count + total bytes),
+  // so the retention page can show what each host is actually holding.
+  if (!agentColumnNames.has("log_stats_json")) {
+    await run("ALTER TABLE agents ADD COLUMN log_stats_json TEXT");
+  }
   // Grouping + manual ordering (global)
   if (!agentColumnNames.has("group_id")) {
     await run("ALTER TABLE agents ADD COLUMN group_id INTEGER");
@@ -188,6 +201,25 @@ export async function initDb() {
   if (!agentColumnNames.has("position")) {
     await run("ALTER TABLE agents ADD COLUMN position INTEGER");
   }
+
+  // Metric history, used for the sparklines on the fleet and agent pages.
+  // One row per agent per sampling window (see METRICS_SAMPLE_INTERVAL_MS in
+  // routes/agent-api.js) — not one row per poll, which at a 15 s interval would
+  // add ~5 800 rows per agent per day for no extra visual resolution.
+  await run(
+    `CREATE TABLE IF NOT EXISTS agent_metrics (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      agent_id TEXT NOT NULL,
+      collected_at TEXT NOT NULL,
+      cpu_percent REAL,
+      memory_percent REAL,
+      disk_percent REAL,
+      load_1m REAL
+    )`
+  );
+  await run(
+    "CREATE INDEX IF NOT EXISTS idx_agent_metrics_agent_time ON agent_metrics (agent_id, collected_at)"
+  );
 
   await run(
     `CREATE TABLE IF NOT EXISTS groups (

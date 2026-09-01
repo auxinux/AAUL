@@ -19,7 +19,8 @@ from lib.uninstall import uninstall_agent
 from lib.util import append_log, get_hostname, get_primary_ip, utc_now_iso
 from lib.system_info import collect_system_info, get_reboot_required, get_uptime_seconds
 from lib.systemd import set_schedule, restart_poller
-from lib.logs import list_logs, read_log
+from lib.logs import list_logs, read_log, apply_retention, get_log_stats
+from lib.metrics import collect_metrics
 from lib.updater import update_agent, UpdateError
 from lib.local_web import get_local_web_manager, start_local_server, stop_local_server, is_server_running
 from agent_runner import run_update
@@ -51,8 +52,28 @@ def build_payload(config):
         "lastDurationSeconds": state.get("lastDurationSeconds"),
         "schedule": config.get("schedule"),
         "uptimeSeconds": get_uptime_seconds(),
-        "rebootRequired": get_reboot_required()
+        "rebootRequired": get_reboot_required(),
+        # Vital signs, cheap enough to ride along on every heartbeat so the
+        # dashboard shows live usage instead of the last manual FETCH_INFO.
+        "metrics": _safe_metrics(),
+        "logStats": _safe_log_stats()
     }
+
+
+def _safe_metrics():
+    """Metrics must never break a poll: a failed probe degrades to None."""
+    try:
+        return collect_metrics()
+    except Exception as exc:
+        append_log(f"metrics collection failed: {exc}")
+        return None
+
+
+def _safe_log_stats():
+    try:
+        return get_log_stats()
+    except Exception:
+        return None
 
 
 def handle_command(config, command):
@@ -100,7 +121,13 @@ def handle_command(config, command):
             result_payload = {"uninstalled": True}
             exit_after = True
         elif cmd_type == "LIST_LOGS":
-            result_payload = {"logs": list_logs()}
+            result_payload = {"logs": list_logs(), "stats": _safe_log_stats()}
+        elif cmd_type == "PRUNE_LOGS":
+            payload = command.get("payload") or {}
+            result_payload = apply_retention(
+                payload.get("retentionDays"), payload.get("maxTotalMb")
+            )
+            result_payload["stats"] = _safe_log_stats()
         elif cmd_type == "FETCH_LOG":
             payload = command.get("payload") or {}
             log_name = payload.get("logName")
@@ -177,6 +204,30 @@ def apply_local_web_config(response):
         append_log(f"Failed to apply local web config: {exc}")
 
 
+# Retention is re-applied at most once an hour: it walks the log directory,
+# which is cheap but pointless to redo at every 15-second poll.
+_RETENTION_INTERVAL_SECONDS = 3600
+_last_retention_at = 0.0
+
+
+def apply_logs_config(response):
+    """Apply the `logs` retention block from a poll response, if present."""
+    global _last_retention_at
+    logs_config = response.get("logs")
+    if not isinstance(logs_config, dict):
+        return
+    now = time.time()
+    if now - _last_retention_at < _RETENTION_INTERVAL_SECONDS:
+        return
+    _last_retention_at = now
+    try:
+        apply_retention(
+            logs_config.get("retentionDays"), logs_config.get("maxTotalMb")
+        )
+    except Exception as exc:
+        append_log(f"Failed to apply log retention: {exc}")
+
+
 # Only one command runs at a time. The heartbeat (poll loop) keeps running while
 # a command executes in this worker thread, so the agent stays "online" during
 # long operations like a system update instead of looking dead.
@@ -221,6 +272,7 @@ def poll_once(async_commands=False):
     write_state(state)
 
     apply_local_web_config(response)
+    apply_logs_config(response)
 
     latest_agent_version = response.get("latestAgentVersion")
     if latest_agent_version:

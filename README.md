@@ -9,6 +9,8 @@ Agent Auto Update Linux, or `AAUL`, is a small fleet management project built ar
 
 The original project name says "Linux", but the current codebase also supports macOS and Windows for agent installation and update flows.
 
+The dashboard is responsive: it is usable from a phone or tablet, not only from a desktop browser.
+
 ## What the project does
 
 AAUL lets you register a machine in the dashboard, generate a one-time installer URL, and let the agent poll the dashboard for work.
@@ -18,13 +20,19 @@ The dashboard can:
 - register agents and generate installation commands
 - queue commands such as `RUN_NOW`, `SET_SCHEDULE`, `UPDATE_AGENT`, `UNINSTALL`
 - display machine state, package information, logs, and last-seen activity
+- show live CPU / memory / disk usage per host, with 24-hour history
+- aggregate pending updates across the whole fleet and flag the security ones
+- push a log-retention policy that every agent enforces locally
 - build and serve the latest agent bundle used for agent self-update
 
 The agent can:
 
 - install on Debian/Ubuntu, Fedora/RHEL, Arch Linux, macOS, and Windows 11
 - report local system information back to the dashboard
+- report lightweight vital signs (CPU, memory, disk, load) on every check-in
 - apply operating system updates using the native package manager
+- report which pending updates come from a security channel
+- prune its own log directory according to the dashboard's retention policy
 - update itself from the bundle exposed by the dashboard
 - run as a background service on each supported platform
 
@@ -33,6 +41,8 @@ The agent can:
 ```text
 agent/
   app/                    Python agent runtime
+  app/lib/metrics.py      Vital signs collected on every check-in
+  app/lib/logs.py         Log listing, reading and retention
   systemd/                Linux service templates
 
 dashboard/
@@ -288,6 +298,73 @@ AAUL -agent -exec <AGENT_ID>
 AAUL -agent -remove <AGENT_ID>
 ```
 
+## Fleet packages and security updates
+
+`Packages -> See the whole fleet` aggregates every machine's pending updates into
+one list. For each package you get the number of hosts affected and whether the
+update comes from a security channel, so the page answers the two questions that
+actually drive patching: *what must I fix* and *how much of my fleet does it
+touch*.
+
+Security detection is per-platform and best effort:
+
+| Platform | Source of the security flag |
+|----------|-----------------------------|
+| Debian / Ubuntu | the suite in `apt list --upgradable` (`<codename>-security`), cross-checked against `apt-get -s dist-upgrade` |
+| Fedora / RHEL | `dnf updateinfo list security` |
+| openSUSE | `zypper list-patches --category security` |
+| Arch, macOS, Windows | not available — these publish no per-package security metadata, so updates are reported as regular ones rather than guessed |
+
+A package is flagged as security-relevant as soon as **one** host reports it from
+a security channel: the same version can sit in `-security` on one distro release
+and in plain `-updates` on another, and under-reporting a security fix is the
+costlier mistake.
+
+Use `Security only` to reduce the list, or `Patch security updates` to queue just
+those updates on every affected machine. Bulk updates still require the per-agent
+package-management opt-in; agents without it are skipped.
+
+## Host metrics
+
+Every poll carries a small set of vital signs (CPU, load average, memory, swap,
+root filesystem **and the fullest mounted filesystem**, process and session
+counts). This is deliberately separate from the full inventory
+(`collect_system_info()`), which is expensive and still runs only on demand.
+
+- Fleet cards and the fleet-health panel show current usage at a glance.
+- The agent page adds 24-hour sparklines.
+- A host is listed as "under pressure" above 90% CPU, 90% memory or 85% disk.
+  Disk pressure uses the fullest volume, not `/`: a machine can look healthy on
+  `/` while `/var` is the one about to fill up.
+
+History is sampled once per host every 5 minutes (not once per poll, which would
+add thousands of rows a day without adding visible detail) and pruned according
+to `Admin -> Metric history retention`, 30 days by default.
+
+Agents older than 0.9.0 simply report no metrics; the dashboard shows "no metrics
+reported yet" rather than a misleading 0%.
+
+## Log collection and retention
+
+Agents write one log file per day. Nothing used to delete them, so a long-lived
+machine accumulated hundreds of files.
+
+Retention is configured centrally in `Logs -> Log retention` and pushed to every
+agent on its next check-in. Each agent then enforces it locally, at most once an
+hour:
+
+1. delete logs older than the age limit;
+2. delete the oldest remaining logs until the total fits the size limit.
+
+Defaults are 30 days or 200 MB, whichever comes first. Two safety rules are
+hardcoded in the agent and cannot be overridden from the dashboard: the **current
+day's log is never deleted**, and only files the agent itself produced
+(`agent-YYYY-MM-DD.log`) are ever eligible for removal.
+
+`Clean up now` applies the policy to one host immediately, which is what you want
+when a disk is filling up. The log viewer supports search, level highlighting
+(errors, warnings, success), line wrapping and download.
+
 ## Beta status & known limitations
 
 AAUL is currently released as a **public beta** (pre-1.0). It is usable and has
@@ -300,6 +377,15 @@ deploy it on a fleet you care about:
   stable release. Note that the agent auto-update compares version *strings*,
   not version *order*: any change to the agent version (in either direction)
   triggers an update on the next poll.
+
+- **Metrics and log retention need agent 0.9.0+.** Older agents keep working
+  normally, but report no vital signs and do not prune their own logs. Push
+  `UPDATE_AGENT` to the fleet to enable both.
+
+- **Security flags depend on the package manager.** Arch, macOS and Windows
+  expose no per-package security metadata, so their updates are never marked as
+  security updates. Absence of the flag on those platforms means "unknown", not
+  "safe".
 
 - **Run it over HTTPS.** Agent tokens and admin sessions travel over the wire.
   Enable HTTPS (or put the dashboard behind a TLS-terminating reverse proxy)

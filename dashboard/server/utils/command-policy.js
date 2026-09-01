@@ -27,7 +27,8 @@ export const RETRYABLE_COMMAND_TYPES = new Set([
   "PACKAGE_SEARCH",
   "PACKAGE_INSTALL",
   "PACKAGE_REMOVE",
-  "UPDATE_PACKAGES"
+  "UPDATE_PACKAGES",
+  "PRUNE_LOGS"
 ]);
 
 function fail(error) {
@@ -90,6 +91,30 @@ export function validateCommandPayload(type, payload = null) {
       return fail("Invalid logName");
     }
     return { ok: true, payload: { logName } };
+  }
+
+  // Log retention: bounds mirror the agent's own clamping in lib/logs.py, so a
+  // malformed request is rejected before a command is ever queued.
+  if (type === "PRUNE_LOGS") {
+    const days = Number.parseInt(payload?.retentionDays, 10);
+    const maxMb = Number.parseInt(payload?.maxTotalMb, 10);
+    const clean = {};
+    if (Number.isFinite(days)) {
+      if (days < 1 || days > 3650) {
+        return fail("Invalid retentionDays (1..3650)");
+      }
+      clean.retentionDays = days;
+    }
+    if (Number.isFinite(maxMb)) {
+      if (maxMb < 1 || maxMb > 100000) {
+        return fail("Invalid maxTotalMb (1..100000)");
+      }
+      clean.maxTotalMb = maxMb;
+    }
+    if (Object.keys(clean).length === 0) {
+      return fail("PRUNE_LOGS requires retentionDays and/or maxTotalMb");
+    }
+    return { ok: true, payload: clean };
   }
 
   if (type === "PACKAGE_SEARCH") {

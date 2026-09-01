@@ -305,64 +305,210 @@ def remove(name: str):
 # ---------------------------------------------------------------------------
 #  Available updates: detect (no install) and apply selected
 # ---------------------------------------------------------------------------
+
+# Suites/repositories whose name marks an update as security-relevant.
+# Debian/Ubuntu publish security fixes to a dedicated archive ("<codename>-security",
+# or "Debian-Security"), so the suite name is an authoritative signal.
+_SECURITY_SUITE_HINTS = ("-security", "security-updates", "debian-security", "updates-security")
+
+
+def _apt_security_names():
+    """
+    Package names whose candidate upgrade comes from a security pocket.
+
+    `apt-get -s dist-upgrade` simulates the upgrade and prints, for every
+    package, the origin of the version it would install:
+
+        Inst libssl3 [3.0.2-0ubuntu1.12] (3.0.2-0ubuntu1.15 Ubuntu:22.04/jammy-security [amd64])
+
+    That origin is the same signal apt uses itself, and it survives the case
+    where a package is upgradable from both -updates and -security.
+    """
+    names = set()
+    code, out, _ = _run(["apt-get", "-s", "-q", "dist-upgrade"], _QUERY_TIMEOUT)
+    for line in out.splitlines():
+        if not line.startswith("Inst "):
+            continue
+        if any(hint in line.lower() for hint in _SECURITY_SUITE_HINTS):
+            parts = line.split()
+            if len(parts) > 1:
+                names.add(parts[1])
+    return names
+
+
+def _dnf_security_names(mgr):
+    """
+    Package names covered by a security advisory, per `updateinfo`.
+
+    Output lines look like:
+        FEDORA-2024-abc123  Important/Sec.  curl-8.0.1-1.fc39.x86_64
+    We keep the trailing NEVRA and strip version + architecture back to the
+    bare package name, which is what the update list is keyed on.
+    """
+    names = set()
+    code, out, _ = _run([mgr, "-q", "updateinfo", "list", "security"], _QUERY_TIMEOUT)
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) < 3:
+            continue
+        nevra = parts[-1]
+        name = re.sub(r"\.(x86_64|noarch|i686|aarch64|armv7hl|s390x|ppc64le)$", "", nevra)
+        name = re.sub(r"-\d[^-]*-[^-]*$", "", name)
+        if name and name != nevra:
+            names.add(name)
+    return names
+
+
+def _zypper_security_names():
+    """Package names in security patches, per `zypper list-patches`."""
+    names = set()
+    code, out, _ = _run(
+        ["zypper", "--non-interactive", "list-patches", "--category", "security"],
+        _QUERY_TIMEOUT,
+    )
+    for line in out.splitlines():
+        cols = [c.strip() for c in line.split("|")]
+        if len(cols) >= 2 and cols[1] and cols[1].lower() not in ("name", ""):
+            names.add(cols[1])
+    return names
+
+
 def check_updates():
-    """Return the list of available updates WITHOUT installing anything."""
+    """
+    Return the list of available updates WITHOUT installing anything.
+
+    Each entry carries:
+      name       package name
+      detail     human-readable "current -> candidate" when we can determine it
+      version    currently installed version, when known
+      newVersion candidate version, when known
+      source     originating suite/repository, when known
+      security   True when the update comes from a security channel
+
+    `security` is what lets the dashboard answer "what must I patch tonight?"
+    instead of "what could I patch eventually". It is best-effort per platform:
+    Arch, macOS and Windows publish no per-package security metadata, so their
+    updates are reported with security=False rather than a fabricated guess.
+    """
     mgr = detect_package_manager()
     updates = []
 
-    def add(name, detail=""):
+    def add(name, detail="", version="", new_version="", source="", security=False):
         if name:
-            updates.append({"name": name, "detail": detail.strip()})
+            updates.append({
+                "name": name,
+                "detail": (detail or "").strip(),
+                "version": (version or "").strip(),
+                "newVersion": (new_version or "").strip(),
+                "source": (source or "").strip(),
+                "security": bool(security),
+            })
 
     if mgr == "apt":
         _run(["apt-get", "update"], _QUERY_TIMEOUT)
         code, out, _ = _run(["apt", "list", "--upgradable"], _QUERY_TIMEOUT)
+        security_names = set()
+        try:
+            security_names = _apt_security_names()
+        except PackageError:
+            pass
         for line in out.splitlines():
-            if "/" in line and not line.startswith("Listing"):
-                name = line.split("/", 1)[0].strip()
-                add(name, line.split("]")[-1].strip() if "[" in line else "")
+            line = line.strip()
+            if not line or "/" not in line or line.startswith("Listing"):
+                continue
+            # libssl3/jammy-security 3.0.2-0ubuntu1.15 amd64 [upgradable from: 3.0.2-0ubuntu1.12]
+            head, _, rest = line.partition("/")
+            name = head.strip()
+            fields = rest.split()
+            suite = fields[0] if fields else ""
+            new_version = fields[1] if len(fields) > 1 else ""
+            current = ""
+            if "upgradable from:" in line:
+                current = line.split("upgradable from:", 1)[1].strip().rstrip("]").strip()
+            is_security = (
+                any(hint in suite.lower() for hint in _SECURITY_SUITE_HINTS)
+                or name in security_names
+            )
+            detail = f"{current} → {new_version}" if current and new_version else new_version
+            add(name, detail, current, new_version, suite, is_security)
     elif mgr in ("dnf", "yum"):
+        security_names = set()
+        try:
+            security_names = _dnf_security_names(mgr)
+        except PackageError:
+            pass
         code, out, _ = _run([mgr, "-q", "check-update"], _QUERY_TIMEOUT)
         for line in out.splitlines():
             parts = line.split()
             if len(parts) >= 2 and "." in parts[0] and not line.startswith(("Last", "Obsoleting", "Security")):
-                add(parts[0], parts[1])
+                nevra = parts[0]
+                name = nevra.rsplit(".", 1)[0]
+                new_version = parts[1]
+                repo = parts[2] if len(parts) > 2 else ""
+                is_security = name in security_names or any(
+                    hint in repo.lower() for hint in _SECURITY_SUITE_HINTS
+                )
+                add(name, new_version, "", new_version, repo, is_security)
     elif mgr == "zypper":
+        security_names = set()
+        try:
+            security_names = _zypper_security_names()
+        except PackageError:
+            pass
         code, out, _ = _run(["zypper", "-q", "list-updates"], _QUERY_TIMEOUT)
         for line in out.splitlines():
             cols = [c.strip() for c in line.split("|")]
             if len(cols) >= 4 and cols[2] and cols[2].lower() not in ("name", ""):
-                add(cols[2], f"{cols[3]} → {cols[4]}" if len(cols) > 4 else "")
+                name = cols[2]
+                current = cols[3] if len(cols) > 3 else ""
+                new_version = cols[4] if len(cols) > 4 else ""
+                detail = f"{current} → {new_version}" if new_version else current
+                add(name, detail, current, new_version, cols[1] if len(cols) > 1 else "",
+                    name in security_names)
     elif mgr == "pacman":
+        # Arch ships no per-package security metadata (no security-only repo),
+        # so every update is reported as a regular one.
         code, out, _ = _run(["pacman", "-Qu"], _QUERY_TIMEOUT)
         for line in out.splitlines():
             parts = line.split()
             if parts:
-                add(parts[0], " ".join(parts[1:]))
+                # name 1.2.3-1 -> 1.2.4-1
+                name = parts[0]
+                current = parts[1] if len(parts) > 1 else ""
+                new_version = parts[3] if len(parts) > 3 else ""
+                add(name, " ".join(parts[1:]), current, new_version)
     elif mgr == "macos":
         code, out, _ = _run_brew(["outdated", "--verbose"], _QUERY_TIMEOUT)
         for line in out.splitlines():
             if line.strip():
-                add(line.split(" ", 1)[0], line)
-        # OS-level updates (informational; applied via full update)
+                add(line.split(" ", 1)[0], line, source="homebrew")
+        # OS-level updates (informational; applied via full update). Apple flags
+        # security content in the title, which is the only signal available here.
         oc, oout, _ = _run(["softwareupdate", "-l"], _QUERY_TIMEOUT)
         for line in oout.splitlines():
             s = line.strip()
             if s.startswith("* Label:"):
-                add(s.replace("* Label:", "").strip(), "macOS update")
-            elif s.startswith("Title:"):
-                if updates:
-                    updates[-1]["detail"] = s
+                add(s.replace("* Label:", "").strip(), "macOS update", source="softwareupdate")
+            elif s.startswith("Title:") and updates:
+                updates[-1]["detail"] = s
+                if "security" in s.lower():
+                    updates[-1]["security"] = True
     elif mgr == "windows":
         code, out, _ = _run(["winget", "upgrade"], _QUERY_TIMEOUT)
         for line in out.splitlines():
             line = line.strip()
             if line and not line.startswith("-") and not line.lower().startswith("name"):
-                add(line)
+                add(line, source="winget")
     else:
         raise PackageError("Gestionnaire de paquets non supporté")
 
-    return {"manager": mgr, "updates": updates, "count": len(updates)}
+    security_count = sum(1 for u in updates if u["security"])
+    return {
+        "manager": mgr,
+        "updates": updates,
+        "count": len(updates),
+        "securityCount": security_count,
+    }
 
 
 def update_packages(names):

@@ -10,6 +10,31 @@ import { resolveBaseUrl } from "../utils/base-url.js";
 
 const router = express.Router();
 
+// Defaults mirror the fallbacks in routes/agent-api.js so the Admin page shows
+// the values the fleet is actually running with, not a blank field.
+const DEFAULT_LOG_RETENTION_DAYS = 30;
+const DEFAULT_LOG_MAX_TOTAL_MB = 200;
+const DEFAULT_METRICS_RETENTION_DAYS = 30;
+
+/**
+ * Validate a bounded integer setting.
+ *
+ * An absent field must keep whatever is already stored, NOT snap back to the
+ * default: several pages post a partial settings document (the Logs page owns
+ * log retention, this page owns networking), and resetting the fields a caller
+ * did not mention would silently undo another page's configuration.
+ */
+function boundedInt(value, { min, max, fallback, label }) {
+  if (value === undefined || value === null || String(value).trim() === "") {
+    return { ok: true, value: String(fallback) };
+  }
+  const number = Number.parseInt(String(value).trim(), 10);
+  if (!Number.isFinite(number) || number < min || number > max) {
+    return { ok: false, error: `Invalid ${label} (integer ${min}..${max} expected)` };
+  }
+  return { ok: true, value: String(number) };
+}
+
 /**
  * GET /api/settings
  * Retrieve current settings merged with defaults from config
@@ -30,7 +55,15 @@ router.get("/", requireAdmin, async (req, res) => {
       agentLocalWebPort: settings.agentLocalWebPort || String(config.agentLocalWebPort || 8080),
 
       // Global internet base URL (used as default when creating internet agents)
-      internetBaseUrl: settings.internetBaseUrl || ""
+      internetBaseUrl: settings.internetBaseUrl || "",
+
+      // Log retention, pushed to every agent on its next poll. Agents clamp
+      // these values again locally — see agent/app/lib/logs.py.
+      logRetentionDays: settings.logRetentionDays || String(DEFAULT_LOG_RETENTION_DAYS),
+      logMaxTotalMb: settings.logMaxTotalMb || String(DEFAULT_LOG_MAX_TOTAL_MB),
+
+      // How long the dashboard keeps per-host metric history (server-side only).
+      metricsRetentionDays: settings.metricsRetentionDays || String(DEFAULT_METRICS_RETENTION_DAYS)
     }
   });
 });
@@ -46,16 +79,56 @@ router.post("/", requireAdmin, async (req, res) => {
     defaultPollSeconds,
     agentLocalWebEnabled,
     agentLocalWebPort,
-    internetBaseUrl
+    internetBaseUrl,
+    logRetentionDays,
+    logMaxTotalMb,
+    metricsRetentionDays
   } = req.body || {};
 
-  const publicIpValue = publicIp ? String(publicIp).trim() : "";
+  const current = await getSettings();
+
+  const logDays = boundedInt(logRetentionDays, {
+    min: 1, max: 3650,
+    fallback: current.logRetentionDays ?? DEFAULT_LOG_RETENTION_DAYS,
+    label: "logRetentionDays"
+  });
+  if (!logDays.ok) {
+    res.status(400).json({ error: logDays.error });
+    return;
+  }
+  const logMb = boundedInt(logMaxTotalMb, {
+    min: 1, max: 100000,
+    fallback: current.logMaxTotalMb ?? DEFAULT_LOG_MAX_TOTAL_MB,
+    label: "logMaxTotalMb"
+  });
+  if (!logMb.ok) {
+    res.status(400).json({ error: logMb.error });
+    return;
+  }
+  const metricsDays = boundedInt(metricsRetentionDays, {
+    min: 1, max: 3650,
+    fallback: current.metricsRetentionDays ?? DEFAULT_METRICS_RETENTION_DAYS,
+    label: "metricsRetentionDays"
+  });
+  if (!metricsDays.ok) {
+    res.status(400).json({ error: metricsDays.error });
+    return;
+  }
+
+  // Absent (undefined) means "leave as-is"; an empty string means "clear it".
+  // Different pages own different parts of this document, so a partial POST
+  // must never reset the fields it did not mention.
+  const publicIpValue =
+    publicIp === undefined ? (current.publicIp || "") : String(publicIp).trim();
   if (publicIpValue && !/^[A-Za-z0-9.\-:\[\]]+$/.test(publicIpValue)) {
     res.status(400).json({ error: "Invalid publicIp format" });
     return;
   }
 
-  const nextPoll = defaultPollSeconds ? String(defaultPollSeconds) : "";
+  const nextPoll =
+    defaultPollSeconds === undefined
+      ? (current.defaultPollSeconds || "")
+      : String(defaultPollSeconds).trim();
   if (nextPoll) {
     const pollValue = Number.parseInt(nextPoll, 10);
     if (!Number.isFinite(pollValue) || pollValue <= 0 || pollValue > 86400) {
@@ -64,8 +137,9 @@ router.post("/", requireAdmin, async (req, res) => {
     }
   }
 
-  let internetBaseUrlValue = "";
-  if (internetBaseUrl && String(internetBaseUrl).trim()) {
+  let internetBaseUrlValue =
+    internetBaseUrl === undefined ? (current.internetBaseUrl || "") : "";
+  if (internetBaseUrl !== undefined && String(internetBaseUrl).trim()) {
     try {
       const u = new URL(String(internetBaseUrl).trim());
       if (u.protocol !== "http:" && u.protocol !== "https:") throw new Error("bad protocol");
@@ -77,22 +151,33 @@ router.post("/", requireAdmin, async (req, res) => {
   }
 
   const allowedPorts = [8080, 8090, 8180, 8190];
-  const localWebPortValue = agentLocalWebPort ? Number.parseInt(agentLocalWebPort, 10) : 8080;
+  const localWebPortRaw =
+    agentLocalWebPort === undefined ? current.agentLocalWebPort : agentLocalWebPort;
+  const localWebPortValue = localWebPortRaw ? Number.parseInt(localWebPortRaw, 10) : 8080;
   if (!allowedPorts.includes(localWebPortValue)) {
     res.status(400).json({ error: `Invalid agentLocalWebPort. Allowed: ${allowedPorts.join(", ")}` });
     return;
   }
+
+  // Guard against the classic JSON pitfall: the string "false" is truthy, so a
+  // caller echoing settings back would silently turn the flag on.
+  const localWebEnabledValue =
+    agentLocalWebEnabled === undefined
+      ? (current.agentLocalWebEnabled === "true")
+      : agentLocalWebEnabled === true || agentLocalWebEnabled === "true";
   
-  const current = await getSettings();
   const currentPoll = current.defaultPollSeconds || String(config.agentDefaultPollSeconds);
   
   // Build settings object with all values
   const newSettings = {
     publicIp: publicIpValue,
     defaultPollSeconds: nextPoll,
-    agentLocalWebEnabled: agentLocalWebEnabled ? "true" : "false",
+    agentLocalWebEnabled: localWebEnabledValue ? "true" : "false",
     agentLocalWebPort: String(localWebPortValue),
-    internetBaseUrl: internetBaseUrlValue
+    internetBaseUrl: internetBaseUrlValue,
+    logRetentionDays: logDays.value,
+    logMaxTotalMb: logMb.value,
+    metricsRetentionDays: metricsDays.value
   };
   
   await setSettings(newSettings);

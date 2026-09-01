@@ -8,6 +8,7 @@ import { readVersion } from "./bundle.js";
 import { notifyEvent } from "../utils/notifications.js";
 import { recordAuditEvent } from "../utils/audit.js";
 import config from "../config.js";
+import { getSetting } from "../utils/settings.js";
 import { validateCommandPayload } from "../utils/command-policy.js";
 
 const router = express.Router();
@@ -136,6 +137,162 @@ async function notifyCommandTransition(agent, command, finalStatus, result, erro
   }
 }
 
+// How often a poll sample is written to `agent_metrics`. Polls arrive every
+// 15-60 s; storing each one would bloat the DB without adding visible detail to
+// a sparkline, so we keep one point per 5-minute window per agent.
+const METRICS_SAMPLE_INTERVAL_MS = 5 * 60 * 1000;
+
+// Metric history older than this is discarded. Pruning runs opportunistically
+// (roughly once an hour, on whichever poll happens to land first) rather than
+// on a timer, so it costs nothing when no agent is reporting.
+const DEFAULT_METRICS_RETENTION_DAYS = 30;
+const METRICS_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
+let lastMetricsPruneAt = 0;
+
+function finiteOrNull(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+/**
+ * Normalize the metrics block sent by the agent.
+ *
+ * The agent reports a failed probe as null rather than crashing, and an old
+ * agent reports nothing at all — both must round-trip to a stored null instead
+ * of a zero, so the UI can say "unknown" instead of lying with "0%".
+ */
+function normalizeMetrics(raw) {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const disk = raw.disk || {};
+  return {
+    collectedAt: typeof raw.collectedAt === "string" ? raw.collectedAt : null,
+    cpuPercent: finiteOrNull(raw.cpuPercent),
+    cpuCount: finiteOrNull(raw.cpuCount),
+    loadAverage: raw.loadAverage && typeof raw.loadAverage === "object"
+      ? {
+          "1m": finiteOrNull(raw.loadAverage["1m"]),
+          "5m": finiteOrNull(raw.loadAverage["5m"]),
+          "15m": finiteOrNull(raw.loadAverage["15m"])
+        }
+      : null,
+    memory: raw.memory && typeof raw.memory === "object"
+      ? {
+          percent: finiteOrNull(raw.memory.percent),
+          totalBytes: finiteOrNull(raw.memory.totalBytes),
+          usedBytes: finiteOrNull(raw.memory.usedBytes),
+          availableBytes: finiteOrNull(raw.memory.availableBytes)
+        }
+      : null,
+    swap: raw.swap && typeof raw.swap === "object"
+      ? {
+          percent: finiteOrNull(raw.swap.percent),
+          totalBytes: finiteOrNull(raw.swap.totalBytes),
+          usedBytes: finiteOrNull(raw.swap.usedBytes)
+        }
+      : null,
+    disk: {
+      root: normalizeDiskEntry(disk.root),
+      busiest: normalizeDiskEntry(disk.busiest)
+    },
+    processCount: finiteOrNull(raw.processCount),
+    loggedInUsers: finiteOrNull(raw.loggedInUsers)
+  };
+}
+
+function normalizeDiskEntry(entry) {
+  if (!entry || typeof entry !== "object") {
+    return null;
+  }
+  return {
+    mount: typeof entry.mount === "string" ? entry.mount.slice(0, 260) : null,
+    percent: finiteOrNull(entry.percent),
+    totalBytes: finiteOrNull(entry.totalBytes),
+    usedBytes: finiteOrNull(entry.usedBytes),
+    freeBytes: finiteOrNull(entry.freeBytes)
+  };
+}
+
+function normalizeLogStats(raw) {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  return {
+    fileCount: finiteOrNull(raw.fileCount),
+    totalBytes: finiteOrNull(raw.totalBytes),
+    oldest: typeof raw.oldest === "string" ? raw.oldest : null,
+    newest: typeof raw.newest === "string" ? raw.newest : null
+  };
+}
+
+/** Append a history point if the sampling window has elapsed, then prune. */
+async function recordMetricsHistory(agentId, metrics, now) {
+  if (!metrics) {
+    return;
+  }
+  const last = await dbOps.get(
+    "SELECT collected_at FROM agent_metrics WHERE agent_id = ? ORDER BY collected_at DESC LIMIT 1",
+    [agentId]
+  );
+  if (last) {
+    const elapsed = now.getTime() - new Date(last.collected_at).getTime();
+    if (Number.isFinite(elapsed) && elapsed < METRICS_SAMPLE_INTERVAL_MS) {
+      return;
+    }
+  }
+  await dbOps.run(
+    `INSERT INTO agent_metrics (agent_id, collected_at, cpu_percent, memory_percent, disk_percent, load_1m)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [
+      agentId,
+      now.toISOString(),
+      metrics.cpuPercent,
+      metrics.memory?.percent ?? null,
+      metrics.disk?.root?.percent ?? null,
+      metrics.loadAverage?.["1m"] ?? null
+    ]
+  );
+
+  if (now.getTime() - lastMetricsPruneAt < METRICS_PRUNE_INTERVAL_MS) {
+    return;
+  }
+  lastMetricsPruneAt = now.getTime();
+  const retentionDays = await readMetricsRetentionDays();
+  const cutoff = new Date(now.getTime() - retentionDays * 86400000).toISOString();
+  await dbOps.run("DELETE FROM agent_metrics WHERE collected_at < ?", [cutoff]);
+}
+
+async function readMetricsRetentionDays() {
+  const value = Number.parseInt(await getSetting("metricsRetentionDays"), 10);
+  if (Number.isFinite(value) && value >= 1 && value <= 3650) {
+    return value;
+  }
+  return DEFAULT_METRICS_RETENTION_DAYS;
+}
+
+/** Retention policy pushed to the agent so it prunes its own log directory. */
+async function buildLogsConfig() {
+  const retentionDays = Number.parseInt(await getSetting("logRetentionDays"), 10);
+  const maxTotalMb = Number.parseInt(await getSetting("logMaxTotalMb"), 10);
+  return {
+    retentionDays:
+      Number.isFinite(retentionDays) && retentionDays >= 1 && retentionDays <= 3650
+        ? retentionDays
+        : DEFAULT_LOG_RETENTION_DAYS,
+    maxTotalMb:
+      Number.isFinite(maxTotalMb) && maxTotalMb >= 1 && maxTotalMb <= 100000
+        ? maxTotalMb
+        : DEFAULT_LOG_MAX_TOTAL_MB
+  };
+}
+
+// Conservative defaults: 30 days or 200 MB of agent logs, whichever comes first.
+// Chosen so an untouched install stops growing without silently discarding the
+// history an admin is likely to need after an incident.
+const DEFAULT_LOG_RETENTION_DAYS = 30;
+const DEFAULT_LOG_MAX_TOTAL_MB = 200;
+
 router.post("/poll", requireAgentAuth, async (req, res) => {
   const body = req.body || {};
   if (!body.agentId || body.agentId !== req.agent.id) {
@@ -148,6 +305,8 @@ router.post("/poll", requireAgentAuth, async (req, res) => {
   const uptimeValue = Number.isFinite(uptimeSeconds) ? uptimeSeconds : null;
   const rebootRequired =
     typeof body.rebootRequired === "boolean" ? (body.rebootRequired ? 1 : 0) : null;
+  const metrics = normalizeMetrics(body.metrics);
+  const logStats = normalizeLogStats(body.logStats);
   await dbOps.run(
     `UPDATE agents SET
       last_hostname = ?,
@@ -161,7 +320,10 @@ router.post("/poll", requireAgentAuth, async (req, res) => {
       schedule_daily_time = ?,
       agent_version = ?,
       uptime_seconds = ?,
-      reboot_required = ?
+      reboot_required = ?,
+      metrics_json = COALESCE(?, metrics_json),
+      metrics_updated_at = COALESCE(?, metrics_updated_at),
+      log_stats_json = COALESCE(?, log_stats_json)
      WHERE id = ?`,
     [
       body.hostname || null,
@@ -176,9 +338,20 @@ router.post("/poll", requireAgentAuth, async (req, res) => {
       body.agentVersion || null,
       uptimeValue,
       rebootRequired,
+      metrics ? JSON.stringify(metrics) : null,
+      metrics ? now : null,
+      logStats ? JSON.stringify(logStats) : null,
       req.agent.id
     ]
   );
+
+  // History is best-effort: a failure here must not fail the heartbeat, or a
+  // full disk would take the whole fleet offline in the dashboard's eyes.
+  try {
+    await recordMetricsHistory(req.agent.id, metrics, new Date(now));
+  } catch (err) {
+    console.error("[metrics] history write failed:", err?.message || err);
+  }
 
   // Notify connected dashboard browsers in real-time
   broadcastSSE("agent:update", { agentId: req.agent.id });
@@ -197,6 +370,7 @@ router.post("/poll", requireAgentAuth, async (req, res) => {
     "SELECT local_web_enabled, local_web_port, packages_enabled FROM agents WHERE id = ?",
     [req.agent.id]
   );
+  const logsConfig = await buildLogsConfig();
   const localWebConfig = {
     enabled: agentSettings?.local_web_enabled === 1,
     port: agentSettings?.local_web_port || 8180,
@@ -236,7 +410,7 @@ router.post("/poll", requireAgentAuth, async (req, res) => {
     } else {
       // A command is still legitimately running. Do not hand out or create
       // another one; let the agent complete it.
-      res.json({ ok: true, command: null, localWeb: localWebConfig, latestAgentVersion });
+      res.json({ ok: true, command: null, localWeb: localWebConfig, logs: logsConfig, latestAgentVersion });
       return;
     }
   }
@@ -273,7 +447,7 @@ router.post("/poll", requireAgentAuth, async (req, res) => {
         );
         res.json({
           ok: true,
-          localWeb: localWebConfig,
+          localWeb: localWebConfig, logs: logsConfig,
           latestAgentVersion,
           command
         });
@@ -296,13 +470,13 @@ router.post("/poll", requireAgentAuth, async (req, res) => {
       );
       res.json({
         ok: true,
-        localWeb: localWebConfig,
+        localWeb: localWebConfig, logs: logsConfig,
         latestAgentVersion,
         command
       });
       return;
     }
-    res.json({ ok: true, command: null, localWeb: localWebConfig, latestAgentVersion });
+    res.json({ ok: true, command: null, localWeb: localWebConfig, logs: logsConfig, latestAgentVersion });
     return;
   }
 
@@ -322,7 +496,7 @@ router.post("/poll", requireAgentAuth, async (req, res) => {
       details: { type: queued.type, error: policy.error }
     });
     broadcastSSE("command:update", { agentId: req.agent.id, commandId: queued.id });
-    res.json({ ok: true, command: null, localWeb: localWebConfig, latestAgentVersion });
+    res.json({ ok: true, command: null, localWeb: localWebConfig, logs: logsConfig, latestAgentVersion });
     return;
   }
   await dbOps.run(
@@ -340,7 +514,7 @@ router.post("/poll", requireAgentAuth, async (req, res) => {
 
   res.json({
     ok: true,
-    localWeb: localWebConfig,
+    localWeb: localWebConfig, logs: logsConfig,
     latestAgentVersion,
     command: {
       id: queued.id,

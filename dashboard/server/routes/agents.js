@@ -14,6 +14,7 @@ import { broadcastSSE } from "../utils/sse.js";
 import { getActorUserId, recordAuditEvent } from "../utils/audit.js";
 import { RETRYABLE_COMMAND_TYPES, validateCommandPayload } from "../utils/command-policy.js";
 import { applyAgentFilters, triggerHook } from "../plugins/plugin-loader.js";
+import { getSetting } from "../utils/settings.js";
 
 const router = express.Router();
 const INSTALLER_FILENAMES = {
@@ -151,6 +152,41 @@ function parseJsonOrNull(value) {
   }
 }
 
+// Live vital signs stored by the poll route. Parsed defensively: a corrupted
+// row must degrade to "unknown" in the UI, never break the whole fleet list.
+function parseMetrics(metricsJson) {
+  if (!metricsJson) {
+    return null;
+  }
+  try {
+    const metrics = JSON.parse(metricsJson);
+    return metrics && typeof metrics === "object" ? metrics : null;
+  } catch {
+    return null;
+  }
+}
+
+// Flat summary for the fleet table/cards — the full object is only sent on the
+// agent detail page, where there is room to show it.
+function summarizeMetrics(metricsJson, updatedAt) {
+  const metrics = parseMetrics(metricsJson);
+  if (!metrics) {
+    return null;
+  }
+  return {
+    updatedAt: updatedAt || metrics.collectedAt || null,
+    cpuPercent: metrics.cpuPercent ?? null,
+    memoryPercent: metrics.memory?.percent ?? null,
+    diskPercent: metrics.disk?.root?.percent ?? null,
+    // The fullest volume matters more than "/" for alerting: / can look healthy
+    // while /var is at 98%.
+    busiestDiskPercent: metrics.disk?.busiest?.percent ?? null,
+    busiestDiskMount: metrics.disk?.busiest?.mount ?? null,
+    load1m: metrics.loadAverage?.["1m"] ?? null,
+    cpuCount: metrics.cpuCount ?? null
+  };
+}
+
 function serializeCommand(command) {
   return {
     id: command.id,
@@ -237,6 +273,14 @@ router.get("/", requireAdmin, async (req, res) => {
         })(),
         groupId: agent.group_id || null,
         position: agent.position ?? null,
+        metrics: summarizeMetrics(agent.metrics_json, agent.metrics_updated_at),
+        securityUpdatesAvailable: (() => {
+          try {
+            const parsed = JSON.parse(agent.pending_updates_json || "{}");
+            if (Number.isFinite(parsed.securityCount)) return parsed.securityCount;
+            return (parsed.updates || []).filter((u) => u.security).length;
+          } catch { return 0; }
+        })(),
         osName: (() => {
           try { return JSON.parse(agent.last_info_json || "{}")?.os?.name || null; }
           catch { return null; }
@@ -603,7 +647,13 @@ router.get("/:id", requireAdmin, async (req, res) => {
         port: agent.local_web_port || 8180
       },
       createdAt: agent.created_at,
-      lastInfoUpdatedAt: agent.last_info_updated_at
+      lastInfoUpdatedAt: agent.last_info_updated_at,
+      metrics: parseMetrics(agent.metrics_json),
+      metricsUpdatedAt: agent.metrics_updated_at || null,
+      logStats: (() => {
+        try { return JSON.parse(agent.log_stats_json || "null"); }
+        catch { return null; }
+      })()
     },
     install: installToken ? buildInstallCommands(resolvedBase, installToken) : null,
     info: agent.last_info_json ? JSON.parse(agent.last_info_json) : null
@@ -864,6 +914,111 @@ router.post("/:id/packages/check-updates", requireAdmin, async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+//  Host metrics
+// ---------------------------------------------------------------------------
+
+const METRICS_MAX_HOURS = 24 * 30;
+// Thresholds above which a host is called "under pressure" on the fleet view.
+// Deliberately conservative: an admin should look at the number, not be buried
+// under warnings from a machine that briefly hit 81% CPU.
+const PRESSURE_CPU_PERCENT = 90;
+const PRESSURE_MEMORY_PERCENT = 90;
+const PRESSURE_DISK_PERCENT = 85;
+
+// Time series behind the sparklines on the agent detail page.
+router.get("/:id/metrics/history", requireAdmin, async (req, res) => {
+  const agent = await dbOps.get("SELECT id FROM agents WHERE id = ?", [req.params.id]);
+  if (!agent || !(await applyAgentFilters(agent, req))) {
+    res.status(404).json({ error: "Agent not found" });
+    return;
+  }
+  const requested = Number.parseInt(req.query.hours, 10);
+  const hours = Number.isFinite(requested)
+    ? Math.min(Math.max(requested, 1), METRICS_MAX_HOURS)
+    : 24;
+  const since = new Date(Date.now() - hours * 3600000).toISOString();
+  const rows = await dbOps.all(
+    `SELECT collected_at, cpu_percent, memory_percent, disk_percent, load_1m
+       FROM agent_metrics
+      WHERE agent_id = ? AND collected_at >= ?
+      ORDER BY collected_at ASC`,
+    [req.params.id, since]
+  );
+  res.json({
+    ok: true,
+    hours,
+    points: rows.map((row) => ({
+      at: row.collected_at,
+      cpuPercent: row.cpu_percent,
+      memoryPercent: row.memory_percent,
+      diskPercent: row.disk_percent,
+      load1m: row.load_1m
+    }))
+  });
+});
+
+// Fleet health at a glance: averages plus the hosts that actually need action.
+router.get("/metrics/summary", requireAdmin, async (req, res) => {
+  const allAgents = await dbOps.all(
+    "SELECT id, display_name, last_hostname, last_ip, metrics_json, metrics_updated_at FROM agents"
+  );
+  const agents = [];
+  for (const agent of allAgents) {
+    if (await applyAgentFilters(agent, req)) agents.push(agent);
+  }
+
+  const reporting = [];
+  const pressure = { cpu: [], memory: [], disk: [] };
+
+  for (const agent of agents) {
+    const summary = summarizeMetrics(agent.metrics_json, agent.metrics_updated_at);
+    if (!summary) continue;
+    const label = agent.display_name || agent.last_hostname || agent.id;
+    reporting.push(summary);
+
+    const entry = { id: agent.id, name: label, hostname: agent.last_hostname };
+    if (summary.cpuPercent !== null && summary.cpuPercent >= PRESSURE_CPU_PERCENT) {
+      pressure.cpu.push({ ...entry, value: summary.cpuPercent });
+    }
+    if (summary.memoryPercent !== null && summary.memoryPercent >= PRESSURE_MEMORY_PERCENT) {
+      pressure.memory.push({ ...entry, value: summary.memoryPercent });
+    }
+    // Use the fullest volume, not "/": that is the one that will break first.
+    const diskPercent = summary.busiestDiskPercent ?? summary.diskPercent;
+    if (diskPercent !== null && diskPercent >= PRESSURE_DISK_PERCENT) {
+      pressure.disk.push({ ...entry, value: diskPercent, mount: summary.busiestDiskMount });
+    }
+  }
+
+  const average = (key) => {
+    const values = reporting.map((m) => m[key]).filter((v) => v !== null && v !== undefined);
+    if (values.length === 0) return null;
+    return Math.round((values.reduce((sum, v) => sum + v, 0) / values.length) * 10) / 10;
+  };
+
+  res.json({
+    ok: true,
+    totalAgents: agents.length,
+    reportingAgents: reporting.length,
+    averages: {
+      cpuPercent: average("cpuPercent"),
+      memoryPercent: average("memoryPercent"),
+      diskPercent: average("diskPercent")
+    },
+    thresholds: {
+      cpuPercent: PRESSURE_CPU_PERCENT,
+      memoryPercent: PRESSURE_MEMORY_PERCENT,
+      diskPercent: PRESSURE_DISK_PERCENT
+    },
+    pressure: {
+      cpu: pressure.cpu.sort((a, b) => b.value - a.value),
+      memory: pressure.memory.sort((a, b) => b.value - a.value),
+      disk: pressure.disk.sort((a, b) => b.value - a.value)
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 //  Fleet-wide ("Tout") package aggregation
 // ---------------------------------------------------------------------------
 
@@ -945,9 +1100,33 @@ router.get("/packages/all", requireAdmin, async (req, res) => {
         for (const u of ups.updates) {
           const name = u.name;
           if (!updatesByPkg.has(name)) {
-            updatesByPkg.set(name, { name, detail: u.detail || "", agents: [] });
+            updatesByPkg.set(name, {
+              name,
+              detail: u.detail || "",
+              // A package is flagged security-relevant as soon as ONE host
+              // reports it from a security channel: the same version can be in
+              // -security on one distro release and plain -updates on another,
+              // and under-reporting a security fix is the costlier mistake.
+              security: false,
+              versions: new Set(),
+              sources: new Set(),
+              agents: []
+            });
           }
-          updatesByPkg.get(name).agents.push({ id, name: label, hostname: agent.last_hostname, ip: agent.last_ip });
+          const entry = updatesByPkg.get(name);
+          if (u.security) entry.security = true;
+          if (!entry.detail && u.detail) entry.detail = u.detail;
+          if (u.newVersion) entry.versions.add(u.newVersion);
+          if (u.source) entry.sources.add(u.source);
+          entry.agents.push({
+            id,
+            name: label,
+            hostname: agent.last_hostname,
+            ip: agent.last_ip,
+            security: Boolean(u.security),
+            version: u.version || null,
+            newVersion: u.newVersion || null
+          });
         }
       }
     }
@@ -966,10 +1145,31 @@ router.get("/packages/all", requireAdmin, async (req, res) => {
     .map((e) => ({
       name: e.name,
       detail: e.detail,
+      security: e.security,
+      newVersions: Array.from(e.versions),
+      sources: Array.from(e.sources),
       count: e.agents.length,
       agents: e.agents
     }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+    // Security first, then by blast radius (how many hosts are affected), then
+    // alphabetically. This is the order an operator patches in.
+    .sort((a, b) => {
+      if (a.security !== b.security) return a.security ? -1 : 1;
+      if (a.count !== b.count) return b.count - a.count;
+      return a.name.localeCompare(b.name);
+    });
+
+  const securityUpdates = updates.filter((u) => u.security);
+  const agentsWithSecurityUpdates = new Set();
+  for (const update of securityUpdates) {
+    for (const agent of update.agents) {
+      if (agent.security) agentsWithSecurityUpdates.add(agent.id);
+    }
+  }
+  const agentsWithAnyUpdate = new Set();
+  for (const update of updates) {
+    for (const agent of update.agents) agentsWithAnyUpdate.add(agent.id);
+  }
 
   res.json({
     ok: true,
@@ -978,7 +1178,12 @@ router.get("/packages/all", requireAdmin, async (req, res) => {
     stats: {
       totalAgents: agents.length,
       scannedForInstalled,
-      scannedForUpdates
+      scannedForUpdates,
+      totalUpdates: updates.length,
+      securityUpdates: securityUpdates.length,
+      agentsWithUpdates: agentsWithAnyUpdate.size,
+      agentsWithSecurityUpdates: agentsWithSecurityUpdates.size,
+      totalInstalled: installed.length
     }
   });
 });
@@ -1179,6 +1384,19 @@ router.post("/:id/commands/uninstall", requireAdmin, async (req, res) => {
 
 router.post("/:id/commands/logs", requireAdmin, async (req, res) => {
   await queueCommand(req, res, "LIST_LOGS");
+});
+
+// Ask a host to enforce the log-retention policy immediately, rather than
+// waiting for its next hourly pass. The policy itself comes from the dashboard
+// settings, so an operator cannot prune with ad-hoc values from this button.
+router.post("/:id/commands/prune-logs", requireAdmin, async (req, res) => {
+  const retentionDays = Number.parseInt(await getSetting("logRetentionDays"), 10);
+  const maxTotalMb = Number.parseInt(await getSetting("logMaxTotalMb"), 10);
+  const payload = {
+    retentionDays: Number.isFinite(retentionDays) ? retentionDays : 30,
+    maxTotalMb: Number.isFinite(maxTotalMb) ? maxTotalMb : 200
+  };
+  await queueCommand(req, res, "PRUNE_LOGS", payload);
 });
 
 router.post("/:id/commands/log-content", requireAdmin, async (req, res) => {
