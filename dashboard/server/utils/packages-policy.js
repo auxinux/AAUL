@@ -7,7 +7,13 @@
  */
 
 // Must start alphanumeric, then a small safe charset. No spaces / shell chars.
-export const PACKAGE_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,100}$/;
+//
+// `@` is allowed because Homebrew versions its formulae that way (openssl@3,
+// python@3.11, node@20). Without it, no macOS package could ever be updated —
+// the fleet update refused the whole batch with "Invalid package name".
+// It stays safe: commands are executed as fixed argument lists, never through a
+// shell, and a name can still not start with `@`.
+export const PACKAGE_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._+@-]{0,100}$/;
 // Search queries may contain spaces but no control/shell characters.
 export const SEARCH_QUERY_RE = /^[A-Za-z0-9][A-Za-z0-9 ._+-]{0,100}$/;
 

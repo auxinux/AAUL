@@ -1196,25 +1196,51 @@ router.post("/packages/bulk-update", requireAdmin, async (req, res) => {
     res.status(400).json({ error: "No packages selected" });
     return;
   }
+  // A single unsupported name must not cancel the whole batch. These names come
+  // from what the agents themselves reported, and one odd entry (a protected
+  // package, or a manager whose output we cannot parse into a clean name) used
+  // to abort the entire fleet update with a 400 — nothing got patched at all.
   const clean = [];
+  const rejected = [];
   for (const n of names) {
     const check = validatePackageName(n);
-    if (!check.ok) {
-      res.status(400).json({ error: `${check.error}: ${n}` });
-      return;
+    if (check.ok) {
+      clean.push(check.name);
+    } else {
+      rejected.push({ name: String(n).slice(0, 120), reason: check.error });
     }
-    clean.push(check.name);
+  }
+  if (clean.length === 0) {
+    res.status(400).json({
+      error: "None of the selected packages can be updated remotely",
+      rejected
+    });
+    return;
   }
 
-  const allAgents = await dbOps.all(
-    "SELECT id, pending_updates_json FROM agents WHERE packages_enabled = 1"
+  // Package management is an explicit per-agent opt-in, OFF by default. Agents
+  // without it are skipped — but they must be COUNTED and reported, otherwise
+  // the caller just sees "0 machines queued" with no way to know why.
+  const candidates = await dbOps.all(
+    "SELECT id, display_name, last_hostname, COALESCE(packages_enabled, 0) AS packages_enabled, pending_updates_json FROM agents"
   );
   const agents = [];
-  for (const agent of allAgents) {
+  for (const agent of candidates) {
     if (await applyAgentFilters(agent, req)) agents.push(agent);
   }
+
   const results = [];
+  const skipped = { packagesDisabled: [], notReported: [] };
+
   for (const agent of agents) {
+    const label = agent.display_name || agent.last_hostname || agent.id;
+
+    if (Number(agent.packages_enabled) !== 1) {
+      skipped.packagesDisabled.push({ id: agent.id, name: label });
+      results.push({ id: agent.id, queued: false, reason: "packages-disabled" });
+      continue;
+    }
+
     // Only queue the subset of selected packages that THIS agent reports as
     // outdated. Sending a package the agent doesn't know about (or doesn't have
     // installed) would fail its update command.
@@ -1230,9 +1256,11 @@ router.post("/packages/bulk-update", requireAdmin, async (req, res) => {
       } catch { /* ignore */ }
     }
     if (reportedNames.length === 0) {
+      skipped.notReported.push({ id: agent.id, name: label });
       results.push({ id: agent.id, queued: false, reason: "not-reported" });
       continue;
     }
+
     const r = await createCommand(agent.id, "UPDATE_PACKAGES", { names: reportedNames }, req);
     results.push({ id: agent.id, queued: Boolean(r.id), error: r.error || null });
   }
@@ -1240,6 +1268,16 @@ router.post("/packages/bulk-update", requireAdmin, async (req, res) => {
   res.json({
     ok: true,
     queued: results.filter((r) => r.queued).length,
+    totalAgents: agents.length,
+    requested: names.length,
+    accepted: clean.length,
+    rejected,
+    skipped: {
+      packagesDisabled: skipped.packagesDisabled.length,
+      notReported: skipped.notReported.length,
+      packagesDisabledAgents: skipped.packagesDisabled.slice(0, 20),
+      notReportedAgents: skipped.notReported.slice(0, 20)
+    },
     results
   });
 });

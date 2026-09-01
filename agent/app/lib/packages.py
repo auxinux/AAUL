@@ -24,7 +24,9 @@ from .package_manager import detect_package_manager
 from .logs import log
 
 # Strict package-name charset. Must start alphanumeric; then a small safe set.
-PACKAGE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,100}$")
+# `@` is included for Homebrew's versioned formulae (openssl@3, python@3.11).
+# Safe: every command is a fixed argument list, never a shell string.
+PACKAGE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+@-]{0,100}$")
 # Search queries may contain spaces but no control/shell characters.
 SEARCH_QUERY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._+-]{0,100}$")
 

@@ -108,7 +108,38 @@ export default function PackagesAll() {
         method: "POST",
         body: JSON.stringify({ names })
       });
-      setMessage(t("packagesAll.updateQueued", { n: res.queued }));
+
+      // "0 machines" on its own is useless: say WHY nothing was queued. The two
+      // real causes are the per-agent package opt-in being off, and no machine
+      // currently reporting the package as updatable.
+      const notes = [];
+      if (res.rejected?.length) {
+        notes.push(
+          t("packagesAll.skippedPackages", {
+            n: res.rejected.length,
+            names: res.rejected.map((r) => r.name).slice(0, 5).join(", ")
+          })
+        );
+      }
+
+      if (res.queued > 0) {
+        notes.unshift(t("packagesAll.updateQueued", { n: res.queued }));
+        setMessage(notes.join(" "));
+        setError("");
+      } else {
+        const disabled = res.skipped?.packagesDisabled || 0;
+        const notReported = res.skipped?.notReported || 0;
+        if (disabled > 0) {
+          notes.unshift(t("packagesAll.noneQueuedDisabled", { n: disabled }));
+        } else if (notReported > 0) {
+          notes.unshift(t("packagesAll.noneQueuedNotReported", { n: notReported }));
+        } else {
+          notes.unshift(t("packagesAll.noneQueued"));
+        }
+        setMessage("");
+        setError(notes.join(" "));
+      }
+
       setSelected({});
       setTimeout(() => load(true), 2500);
     } catch (err) {
