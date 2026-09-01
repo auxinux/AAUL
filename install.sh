@@ -444,10 +444,115 @@ run_npm_sync() {
   ok "Dépendances $label prêtes"
 }
 
+# ---------------------------------------------------------------------------
+#  Modules natifs (sqlite3, bcrypt, node-pty)
+# ---------------------------------------------------------------------------
+# `npm ci` peut retourner un succès tout en n'ayant PAS construit les modules
+# natifs : les versions récentes de npm bloquent par défaut les scripts
+# d'installation des dépendances ("install scripts blocked because they are not
+# covered by allowScripts"). Le binaire node_sqlite3.node n'est alors jamais
+# téléchargé, et le dashboard démarre puis meurt sur
+# "Could not locate the bindings file".
+#
+# On ne peut donc pas se fier au code de retour de npm : on VÉRIFIE que chaque
+# module natif se charge réellement, on tente de le reconstruire s'il manque, et
+# on interrompt l'installation si c'est toujours cassé — plutôt que de laisser
+# un service mort en production.
+
+# sqlite3 et bcrypt sont indispensables : sans eux, aucune route ne fonctionne.
+NATIVE_MODULES_REQUIRED="sqlite3 bcrypt"
+# node-pty ne sert qu'au plugin console locale, qui l'importe dans un try/catch.
+# Son absence dégrade cette seule fonctionnalité : ce n'est pas bloquant.
+NATIVE_MODULES_OPTIONAL="node-pty @homebridge/node-pty-prebuilt-multiarch"
+
+# Vrai si le module se charge réellement dans Node depuis /opt/AAUL/dashboard.
+native_module_loads() {
+  (cd "$INSTALL_DIR/dashboard" && run_as_user node -e "require('$1')") >/dev/null 2>&1
+}
+
+# Liste les modules d'un groupe qui ne se chargent pas.
+native_modules_broken() {
+  local mod out=""
+  for mod in $1; do
+    native_module_loads "$mod" || out="$out $mod"
+  done
+  printf "%s" "${out# }"
+}
+
+# Tente de reconstruire les modules donnés. D'abord avec les binaires
+# précompilés (rapide), puis depuis les sources si nécessaire.
+rebuild_native_modules() {
+  local mods="$1" logf
+  logf="$(mktemp)"
+  (cd "$INSTALL_DIR/dashboard" && run_as_user npm rebuild $mods --foreground-scripts) \
+    >"$logf" 2>&1 || true
+  if [ -z "$(native_modules_broken "$mods")" ]; then
+    rm -f "$logf"
+    return 0
+  fi
+  info "Binaires précompilés indisponibles — compilation depuis les sources..."
+  (cd "$INSTALL_DIR/dashboard" && run_as_user npm rebuild $mods --build-from-source --foreground-scripts) \
+    >>"$logf" 2>&1 || true
+  if [ -z "$(native_modules_broken "$mods")" ]; then
+    rm -f "$logf"
+    return 0
+  fi
+  tail -25 "$logf"
+  rm -f "$logf"
+  return 1
+}
+
+ensure_native_modules() {
+  log "Vérification des modules natifs"
+
+  local broken
+  broken="$(native_modules_broken "$NATIVE_MODULES_REQUIRED")"
+  if [ -n "$broken" ]; then
+    warn "Modules natifs non fonctionnels après npm : $broken"
+    info "Reconstruction en cours (npm a probablement bloqué leurs scripts d'installation)"
+    if ! rebuild_native_modules "$broken"; then
+      die "Impossible de construire les modules natifs : $broken
+
+Le dashboard ne peut pas démarrer sans eux (erreur « Could not locate the
+bindings file »). On s'arrête ici plutôt que de redémarrer un service qui
+planterait en boucle.
+
+À ce stade le service est DÉJÀ arrêté et le nouveau code DÉJÀ copié dans
+$INSTALL_DIR. Deux options :
+
+1) Corriger puis relancer ce script :
+     cd $INSTALL_DIR/dashboard
+     npm rebuild $broken --build-from-source --foreground-scripts
+     node -e \"require('sqlite3'); require('bcrypt')\"   # doit ne rien afficher
+   Vérifiez aussi les outils de compilation : build-essential, python3,
+   python3-setuptools, et le paquet python3-distutils si votre Python est < 3.12.
+
+2) Revenir à la version précédente depuis la sauvegarde :
+     sudo rsync -a --delete ${BACKUP_DIR:-$BACKUP_ROOT/<horodatage>}/ $INSTALL_DIR/
+     sudo systemctl start agentautoupdate-dashboard"
+    fi
+  fi
+  ok "Modules natifs requis fonctionnels (sqlite3, bcrypt)"
+
+  # Optionnels : on signale sans bloquer.
+  broken="$(native_modules_broken "$NATIVE_MODULES_OPTIONAL")"
+  if [ -n "$broken" ]; then
+    rebuild_native_modules "$broken" >/dev/null 2>&1 || true
+    broken="$(native_modules_broken "$NATIVE_MODULES_OPTIONAL")"
+  fi
+  if [ -n "$broken" ]; then
+    warn "Modules natifs optionnels indisponibles : $broken"
+    info "Seul le plugin « console locale » est concerné — le dashboard fonctionne normalement."
+  else
+    ok "Modules natifs optionnels fonctionnels (console locale)"
+  fi
+}
+
 install_deps() {
   log "Installation/mise à jour des dépendances Node.js"
   run_npm_sync "$INSTALL_DIR/dashboard" "serveur"
   run_npm_sync "$INSTALL_DIR/dashboard/client" "client"
+  ensure_native_modules
 }
 
 # ---------------------------------------------------------------------------

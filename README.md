@@ -136,6 +136,8 @@ sudo ./install.sh
 The installer:
 
 - copies the project to `/opt/AAUL`
+- verifies that the native modules (`sqlite3`, `bcrypt`) actually load, and
+  rebuilds them if npm blocked their install scripts
 - preserves runtime data during upgrades
 - installs Node.js dependencies
 - builds the frontend
@@ -401,6 +403,20 @@ deploy it on a fleet you care about:
   authentication, and is rate-limited — enable it only on trusted networks, and
   prefer HTTPS for it too.
 - **Plugins run in the dashboard process.** Install only plugins you trust.
+- **Native modules must build.** The dashboard depends on `sqlite3` and
+  `bcrypt`, which ship compiled binaries. Recent npm versions block dependency
+  install scripts by default (`install scripts blocked because they are not
+  covered by allowScripts`), in which case `npm ci` succeeds but the binary is
+  never fetched and the server dies at boot with *Could not locate the bindings
+  file*. `install.sh` now detects this, rebuilds the modules, and aborts with
+  instructions rather than restarting a service that cannot start. If you
+  install dependencies by hand, verify with:
+
+  ```bash
+  cd /opt/AAUL/dashboard
+  node -e "require('sqlite3'); require('bcrypt')"   # must print nothing
+  ```
+
 - A few remaining `npm audit` advisories are **build-time-only** transitive
   dependencies of native modules (`tar`/`cacache` via `node-gyp`/`node-pre-gyp`)
   and are not reachable at runtime. See `docs/SECURITY_AUDIT.md`.
