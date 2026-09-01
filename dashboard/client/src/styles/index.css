@@ -196,7 +196,15 @@ body {
 }
 
 .animate-fade-in {
-  animation: fadeIn 0.3s ease-out forwards;
+  /* No `forwards` on purpose. With it, the element keeps the final keyframe's
+     `transform: translateY(0)` — a transform that is not `none` — and any
+     ancestor with a transform becomes the containing block for its
+     `position: fixed` descendants. Layout wraps every page in this class, so
+     `forwards` made modals position against the whole document instead of the
+     viewport: the backdrop showed but the dialog sat far below the fold.
+     The final keyframe already matches the element's natural state
+     (opacity 1, no transform), so dropping `forwards` changes nothing visually. */
+  animation: fadeIn 0.3s ease-out;
 }
 
 /* Custom Scrollbar */

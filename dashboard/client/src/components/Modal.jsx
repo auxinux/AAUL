@@ -1,4 +1,5 @@
 import React, { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
 const SIZE_MAP = {
@@ -17,20 +18,36 @@ export default function Modal({
   size = "lg",
   hideClose = false
 }) {
+  // Lock background scrolling while the modal is up, then restore whatever was
+  // there before. Forcing "unset" on close would clobber the lock the mobile
+  // nav drawer sets for itself.
   useEffect(() => {
-    if (open) {
-      document.body.style.overflow = "hidden";
-    } else {
-      document.body.style.overflow = "unset";
-    }
+    if (!open) return undefined;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     return () => {
-      document.body.style.overflow = "unset";
+      document.body.style.overflow = previous;
     };
   }, [open]);
 
+  // Close on Escape, like any dialog.
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") onClose?.();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, onClose]);
+
   if (!open) return null;
 
-  return (
+  // Rendered through a portal on <body>. A modal must position against the
+  // viewport, and `position: fixed` resolves against the nearest ancestor with
+  // a transform/filter/backdrop-filter instead. Pages sit inside animated and
+  // blurred containers, so anchoring to the page tree is unreliable by nature —
+  // the portal removes the dependency entirely rather than patching each case.
+  return createPortal(
     <div className="fixed inset-0 z-50 overflow-y-auto">
       {/* Backdrop */}
       <div 
@@ -78,6 +95,7 @@ export default function Modal({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

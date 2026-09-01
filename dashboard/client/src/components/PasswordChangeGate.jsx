@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { createPortal } from "react-dom";
 import { useAuth } from "./AuthProvider.jsx";
 import { useI18n } from "../lib/i18n.js";
 
@@ -41,9 +42,12 @@ export default function PasswordChangeGate() {
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-ink-950/90 p-4 backdrop-blur-sm">
-      <div className="card w-full max-w-xl animate-float-in border border-amber-500/30 shadow-[0_24px_80px_rgba(15,23,42,0.55)]">
+  // Portalled to <body> for the same reason as Modal: a full-screen blocking
+  // overlay must anchor to the viewport, and `position: fixed` silently anchors
+  // to the nearest transformed/filtered ancestor instead.
+  return createPortal(
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-ink-950/90 p-4 backdrop-blur-sm overflow-y-auto">
+      <div className="card w-full max-w-xl animate-fade-in border border-amber-500/30 shadow-[0_24px_80px_rgba(15,23,42,0.55)]">
         <div className="space-y-2">
           <p className="text-xs uppercase tracking-[0.35em] text-amber-300">
             {t("passwordChange.required")}
@@ -98,6 +102,7 @@ export default function PasswordChangeGate() {
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
