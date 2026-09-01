@@ -23,6 +23,8 @@ from typing import Optional
 
 # Rate limiting for login attempts
 _login_attempts: dict = defaultdict(list)
+# Reboot password attempts, throttled separately from logins.
+_reboot_attempts = defaultdict(list)
 _LOGIN_WINDOW_S = 900  # 15 minutes
 _MAX_LOGIN_ATTEMPTS = 5
 
@@ -330,6 +332,8 @@ class AgentWebHandler(BaseHTTPRequestHandler):
             self.api_package_action(data, "install")
         elif path == "/api/packages/remove":
             self.api_package_action(data, "remove")
+        elif path == "/api/reboot":
+            self.api_reboot(data, username)
         else:
             self.send_json({"error": "Not found"}, 404)
     
@@ -640,6 +644,18 @@ class AgentWebHandler(BaseHTTPRequestHandler):
             ".mo{position:fixed;inset:0;background:rgba(8,12,19,.85);display:flex;align-items:center;justify-content:center;z-index:200;backdrop-filter:blur(6px)}\n"
             ".mo-box{background:var(--surf);border:1px solid rgba(255,255,255,.1);border-radius:20px;padding:32px;max-width:560px;width:92%;box-shadow:0 20px 40px rgba(0,0,0,0.5)}\n"
             ".mo-title{font-family:var(--font-display);font-size:18px;font-weight:700;color:var(--brand);margin-bottom:16px}\n"
+            ".mo-msg{font-size:14px;color:var(--txt);line-height:1.6;margin-bottom:20px}\n"
+            ".mo-sub{font-size:13px;color:var(--mut);line-height:1.5;margin-top:8px}\n"
+            ".mo-actions{display:flex;gap:12px;justify-content:flex-end;flex-wrap:wrap}\n"
+            ".mo-actions .btn{min-width:120px}\n"
+            ".mo-field{margin-bottom:20px}\n"
+            ".mo-field label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--mut);font-weight:700;margin-bottom:6px}\n"
+            ".mo-field input{width:100%;padding:11px 14px;border-radius:10px;border:1px solid var(--bdr);background:rgba(0,0,0,.35);color:#fff;font-size:14px}\n"
+            ".mo-field input:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px rgba(12,129,235,.15)}\n"
+            ".mo-err{color:#f87171;font-size:13px;margin-bottom:14px;min-height:18px}\n"
+            ".btn-d{background:var(--red);color:#fff;box-shadow:0 4px 12px rgba(239,68,68,.25)}\n"
+            ".btn-d:hover{background:#dc2626;transform:translateY(-1px)}\n"
+            ".btn-d:disabled{opacity:.5;cursor:not-allowed;transform:none}\n"
             ".mo-log{\n"
             "  background:#05070c;border-radius:10px;padding:16px;font-family:monospace;font-size:12px;height:240px;\n"
             "  overflow-y:auto;color:#a3b1bd;margin-bottom:20px;line-height:1.6;border:1px solid var(--bdr);\n"
@@ -661,6 +677,7 @@ class AgentWebHandler(BaseHTTPRequestHandler):
             "  .card{padding:16px}\n"
             "  .act-row{flex-direction:column;align-items:stretch;gap:14px}\n"
             "  .act-row button{width:100%}\n"
+            "}\n"
             "</style>\n"
             "</head>\n"
             "<body>\n"
@@ -680,6 +697,8 @@ class AgentWebHandler(BaseHTTPRequestHandler):
             '  <button class="tab" onclick="showTab(\'logs\',this)">📋 Journaux</button>\n'
             '  <button class="tab" onclick="showTab(\'pkg\',this)">📦 Paquets</button>\n'
             '  <button class="tab" onclick="showTab(\'act\',this)">⚡ Actions</button>\n'
+            "</nav>\n"
+            '<div class="wrap">\n'
                 # ── Aperçu ──
             '<div id="pane-ov" class="pane active">\n'
             # View toggle
@@ -764,6 +783,14 @@ class AgentWebHandler(BaseHTTPRequestHandler):
             '<p>Exécute apt/yum pour mettre à jour les packages installés.</p>'
             '</div>'
             '<button class="btn btn-p" onclick="runUpdate()" style="flex-shrink:0">🔄 Mettre à jour</button>'
+            "</div>\n"
+            '<div class="act-row" style="margin-top:12px;border-color:rgba(239,68,68,0.15);background:rgba(239,68,68,0.04)">'
+            '<div class="act-info">'
+            '<h3>Redémarrer la machine</h3>'
+            "<p>Demande une confirmation et le mot de passe d'un compte administrateur "
+            "de cette machine. Le redémarrage a lieu une minute plus tard.</p>"
+            '</div>'
+            '<button class="btn btn-d" onclick="rebootMachine()" style="flex-shrink:0">⏻ Redémarrer</button>'
             "</div></div></div>\n"  # end pane-act
 
             # ── Paquets ──
@@ -799,6 +826,96 @@ class AgentWebHandler(BaseHTTPRequestHandler):
             "</div>\n"  # end wrap
 
             "<script>\n"
+
+            # ---------------------------------------------------------------
+            #  In-page dialogs
+            # ---------------------------------------------------------------
+            # Native confirm()/alert() are blocking, unstyled, positioned by the
+            # browser and — in some embedded webviews — suppressed entirely, so a
+            # destructive action could silently proceed or silently fail. Every
+            # confirmation goes through uiConfirm() instead: a real element in the
+            # page, keyboard accessible, that resolves to true/false.
+            "function uiConfirm(opts){\n"
+            "  return new Promise(function(resolve){\n"
+            "    var o=document.createElement('div');o.className='mo';\n"
+            "    var needPwd=!!opts.password;\n"
+            "    var box=document.createElement('div');box.className='mo-box';\n"
+            "    box.setAttribute('role','dialog');box.setAttribute('aria-modal','true');\n"
+            "    var h=document.createElement('div');h.className='mo-title';h.textContent=opts.title||'Confirmer';\n"
+            "    var m=document.createElement('div');m.className='mo-msg';m.textContent=opts.message||'';\n"
+            "    box.appendChild(h);box.appendChild(m);\n"
+            "    var input=null,err=null;\n"
+            "    if(needPwd){\n"
+            "      var f=document.createElement('div');f.className='mo-field';\n"
+            "      var lb=document.createElement('label');lb.textContent=opts.passwordLabel||'Mot de passe';\n"
+            "      lb.setAttribute('for','ui-pwd');\n"
+            "      input=document.createElement('input');input.type='password';input.id='ui-pwd';\n"
+            "      input.autocomplete='current-password';\n"
+            "      f.appendChild(lb);f.appendChild(input);box.appendChild(f);\n"
+            "      err=document.createElement('div');err.className='mo-err';box.appendChild(err);\n"
+            "    }\n"
+            "    var acts=document.createElement('div');acts.className='mo-actions';\n"
+            "    var cancel=document.createElement('button');cancel.className='btn btn-g';\n"
+            "    cancel.textContent=opts.cancelLabel||'Annuler';\n"
+            "    var ok=document.createElement('button');\n"
+            "    ok.className='btn '+(opts.danger?'btn-d':'btn-p');\n"
+            "    ok.textContent=opts.confirmLabel||'Confirmer';\n"
+            "    acts.appendChild(cancel);acts.appendChild(ok);box.appendChild(acts);\n"
+            "    o.appendChild(box);document.body.appendChild(o);\n"
+            "    var prev=document.activeElement;\n"
+            "    function close(result){\n"
+            "      document.removeEventListener('keydown',onKey);\n"
+            "      if(o.parentNode)o.parentNode.removeChild(o);\n"
+            "      if(prev&&prev.focus)prev.focus();\n"
+            "      resolve(result);\n"
+            "    }\n"
+            "    function submit(){\n"
+            "      if(needPwd){\n"
+            "        var v=input.value;\n"
+            "        if(!v){err.textContent='Mot de passe requis.';input.focus();return;}\n"
+            "        close({password:v,username:opts.username||null});\n"
+            "      }else{close(true);}\n"
+            "    }\n"
+            "    function onKey(e){\n"
+            "      if(e.key==='Escape'){e.preventDefault();close(needPwd?null:false);}\n"
+            "      else if(e.key==='Enter'&&needPwd){e.preventDefault();submit();}\n"
+            "    }\n"
+            "    cancel.onclick=function(){close(needPwd?null:false);};\n"
+            "    ok.onclick=submit;\n"
+            "    o.onclick=function(e){if(e.target===o)close(needPwd?null:false);};\n"
+            "    document.addEventListener('keydown',onKey);\n"
+            "    (input||ok).focus();\n"
+            "  });\n"
+            "}\n"
+            "function uiAlert(title,message,danger){\n"
+            "  return uiConfirm({title:title,message:message,confirmLabel:'Fermer',\n"
+            "                    cancelLabel:null,danger:!!danger}).then(function(){});\n"
+            "}\n"
+
+            "async function rebootMachine(){\n"
+            "  var creds=await uiConfirm({\n"
+            "    title:'⏻ Redémarrer cette machine ?',\n"
+            "    message:'Toutes les sessions et services en cours seront interrompus. "
+            "Saisissez le mot de passe d\\'un compte administrateur de cette machine "
+            "(root ou membre du groupe sudo) pour confirmer.',\n"
+            "    password:true,passwordLabel:'Mot de passe administrateur',\n"
+            "    confirmLabel:'Redémarrer',danger:true});\n"
+            "  if(!creds)return;\n"
+            "  var body={password:creds.password};\n"
+            "  if(creds.username)body.username=creds.username;\n"
+            "  try{\n"
+            "    var r=await fetch('/api/reboot',{method:'POST',\n"
+            "      headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});\n"
+            "    var d=await r.json();\n"
+            "    body.password=null;\n"
+            "    if(r.ok&&d.success){\n"
+            "      await uiAlert('Redémarrage planifié',d.message||'La machine va redémarrer.');\n"
+            "    }else{\n"
+            "      await uiAlert('Redémarrage refusé',d.error||'Échec de la demande.',true);\n"
+            "    }\n"
+            "  }catch(e){await uiAlert('Erreur réseau',String(e&&e.message||e),true);}\n"
+            "}\n"
+
             "function showTab(id,el){\n"
             "  document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));\n"
             "  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));\n"
@@ -871,7 +988,9 @@ class AgentWebHandler(BaseHTTPRequestHandler):
             "setInterval(()=>{const p=document.getElementById('pane-logs');if(p&&p.classList.contains('active'))loadLogs();},10000);\n"
 
             "async function runUpdate(){\n"
-            "  if(!confirm('Lancer une mise à jour maintenant ?'))return;\n"
+            "  if(!await uiConfirm({title:'Mise à jour système',\n"
+            "    message:'Lancer maintenant la mise à jour des paquets de cette machine ?',\n"
+            "    confirmLabel:'Lancer'}))return;\n"
             "  const ov=document.createElement('div');\n"
             "  ov.className='mo';\n"
             "  ov.innerHTML='<div class=\"mo-box\"><div class=\"mo-title\">⚙️ Mise à jour en cours...</div>'"
@@ -953,7 +1072,10 @@ class AgentWebHandler(BaseHTTPRequestHandler):
             "  }catch(e){box.innerHTML='Erreur de recherche.';}\n"
             "}\n"
             "async function pkAct(action,name){\n"
-            "  if(!confirm((action==='install'?'Installer':'Désinstaller')+' '+name+' ?'))return;\n"
+            "  var isInstall=action==='install';\n"
+            "  if(!await uiConfirm({title:isInstall?'Installer un paquet':'Désinstaller un paquet',\n"
+            "    message:(isInstall?'Installer ':'Désinstaller ')+name+' sur cette machine ?',\n"
+            "    confirmLabel:isInstall?'Installer':'Désinstaller',danger:!isInstall}))return;\n"
             "  pkOut(action+' '+name+'…');\n"
             "  try{\n"
             "    var d=await fetch('/api/packages/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name})}).then(r=>r.json());\n"
@@ -977,6 +1099,146 @@ class AgentWebHandler(BaseHTTPRequestHandler):
         )
         self.send_html(html)
     
+    # -----------------------------------------------------------------
+    #  Reboot
+    # -----------------------------------------------------------------
+    #
+    # Rebooting a machine is destructive and irreversible from the operator's
+    # point of view, so a valid session is NOT enough. Every request must carry
+    # the OS password of a privileged local account, re-verified here through
+    # PAM/shadow. Without a password that authenticates, the machine is never
+    # rebooted — an attacker holding a stolen session cookie, or replaying a
+    # crafted HTTP request, still cannot trigger it.
+
+    # Reboot is only allowed for root or a member of one of these groups.
+    REBOOT_GROUPS = ["sudo", "wheel", "admin", "root"]
+    # Password attempts are throttled per IP, independently of the login limiter.
+    _MAX_REBOOT_ATTEMPTS = 5
+    _REBOOT_WINDOW_S = 300
+
+    def _is_reboot_rate_limited(self, ip: str) -> bool:
+        now = time.time()
+        _reboot_attempts[ip] = [t for t in _reboot_attempts[ip] if now - t < self._REBOOT_WINDOW_S]
+        return len(_reboot_attempts[ip]) >= self._MAX_REBOOT_ATTEMPTS
+
+    def _user_may_reboot(self, username: str) -> bool:
+        """True for root, or for a member of an administrative group."""
+        if username == "root":
+            return True
+        try:
+            auth = get_pam_auth()
+        except Exception:
+            return False
+        try:
+            return bool(auth._user_in_groups(username, self.REBOOT_GROUPS))
+        except Exception:
+            return False
+
+    def api_reboot(self, data: dict, session_username: str):
+        client_ip = self._get_client_ip()
+
+        if self._is_reboot_rate_limited(client_ip):
+            log(f"[reboot] refusé: trop de tentatives depuis {client_ip}")
+            self.send_json(
+                {"error": "Trop de tentatives. Réessayez dans quelques minutes."}, 429
+            )
+            return
+
+        if not get_pam_auth:
+            log("[reboot] refusé: authentification indisponible")
+            self.send_json({"error": "Authentification indisponible sur cette machine"}, 503)
+            return
+
+        # The account being verified defaults to the logged-in user; an operator
+        # may instead supply root's credentials.
+        username = str(data.get("username") or session_username or "").strip()
+        password = data.get("password") or ""
+        if not username or not password:
+            _reboot_attempts[client_ip].append(time.time())
+            self.send_json({"error": "Mot de passe requis"}, 400)
+            return
+
+        try:
+            success, message = get_pam_auth().authenticate(username, password)
+        except Exception as exc:
+            log(f"[reboot] erreur d'authentification: {exc}")
+            self.send_json({"error": "Authentification indisponible"}, 503)
+            return
+        finally:
+            # Do not keep the secret around any longer than necessary.
+            password = None
+            data.pop("password", None)
+
+        if not success:
+            _reboot_attempts[client_ip].append(time.time())
+            log(f"[reboot] REFUSÉ: mot de passe invalide pour '{username}' depuis {client_ip}")
+            self.send_json({"error": "Mot de passe invalide — redémarrage refusé"}, 401)
+            return
+
+        if not self._user_may_reboot(username):
+            _reboot_attempts[client_ip].append(time.time())
+            log(f"[reboot] REFUSÉ: '{username}' n'est pas administrateur (depuis {client_ip})")
+            self.send_json(
+                {"error": "Cet utilisateur n'est pas autorisé à redémarrer la machine"}, 403
+            )
+            return
+
+        _reboot_attempts.pop(client_ip, None)
+        delay_minutes = 1
+        log(
+            f"[reboot] AUTORISÉ par '{username}' depuis {client_ip} — "
+            f"redémarrage dans {delay_minutes} minute(s)"
+        )
+
+        ok, detail = self._schedule_reboot(username, delay_minutes)
+        if not ok:
+            self.send_json({"error": f"Échec de la planification du redémarrage: {detail}"}, 500)
+            return
+
+        self.send_json({
+            "success": True,
+            "delayMinutes": delay_minutes,
+            "message": (
+                f"Redémarrage planifié dans {delay_minutes} minute(s). "
+                "Annulation possible sur la machine avec: shutdown -c"
+            ),
+        })
+
+    def _schedule_reboot(self, username: str, delay_minutes: int):
+        """
+        Ask the OS to reboot. Returns (ok, detail).
+
+        A short delay is used rather than an immediate reboot so the HTTP
+        response reaches the browser first, and so an operator who realises the
+        mistake can still run `shutdown -c` on the machine.
+        """
+        import subprocess
+
+        reason = f"Redemarrage demande via l'interface locale AAUL par {username}"
+        commands = [
+            ["shutdown", "-r", f"+{delay_minutes}", reason],
+            ["/sbin/shutdown", "-r", f"+{delay_minutes}", reason],
+            ["systemctl", "reboot"],
+        ]
+        need_sudo = os.name != "nt" and hasattr(os, "geteuid") and os.geteuid() != 0
+
+        last_error = "aucune commande disponible"
+        for cmd in commands:
+            full = (["sudo", "-n"] + cmd) if need_sudo else cmd
+            try:
+                proc = subprocess.run(full, capture_output=True, text=True, timeout=15)
+            except FileNotFoundError:
+                last_error = f"{cmd[0]} introuvable"
+                continue
+            except subprocess.TimeoutExpired:
+                last_error = f"{cmd[0]}: delai depasse"
+                continue
+            if proc.returncode == 0:
+                return True, cmd[0]
+            last_error = (proc.stderr or proc.stdout or "").strip()[:200] or f"code {proc.returncode}"
+        log(f"[reboot] echec de la planification: {last_error}")
+        return False, last_error
+
     def api_status(self):
         """API: Get agent status including live resource metrics."""
         state = read_state()
