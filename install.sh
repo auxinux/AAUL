@@ -624,10 +624,11 @@ build_client() {
   # l'erreur n'apparaît que dans le navigateur (ReferenceError) et vide la page.
   # On vérifie donc AVANT de builder, sinon on livre un dashboard blanc.
   if [ -f "$INSTALL_DIR/dashboard/scripts/check-client-refs.mjs" ]; then
-    if ! (cd "$INSTALL_DIR/dashboard" && run_as_user npm run --silent check:refs); then
-      die "Références non définies détectées dans le client React.
+    if ! (cd "$INSTALL_DIR/dashboard" && run_as_user npm run --silent check:client); then
+      die "Problèmes détectés dans le client React (voir ci-dessus).
 
-Ces erreurs passent le build mais vident la page dans le navigateur.
+Références non définies : passent le build mais vident la page dans le
+navigateur. Clés de traduction manquantes : affichent la clé brute à l'écran.
 Installation interrompue avant de livrer un dashboard cassé."
     fi
   fi

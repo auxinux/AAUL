@@ -16,7 +16,8 @@ import {
   Activity,
   Globe,
   PanelLeftClose,
-  PanelLeftOpen
+  PanelLeftOpen,
+  Terminal
 } from "lucide-react";
 import { useAuth } from "./AuthProvider.jsx";
 import { useI18n } from "../lib/i18n.js";
@@ -26,6 +27,42 @@ import Footer from "./Footer.jsx";
 import PasswordChangeGate from "./PasswordChangeGate.jsx";
 
 const COLLAPSE_STORAGE_KEY = "aaul.sidebarCollapsed";
+
+// Lucide icons a plugin may request by name in its registerUI("nav:item") call.
+// Kept as an explicit map so the bundle only pulls in what we actually ship.
+const PLUGIN_ICON_BY_NAME = {
+  Terminal,
+  Console: Terminal,
+  Monitor: Cpu,
+  Activity,
+  Globe,
+  Settings,
+  Plug
+};
+
+/**
+ * Normalize whatever a plugin put in `icon`.
+ *
+ * Returns `{ Component }` for a real icon, or `{ text }` for an emoji/short
+ * label rendered in the icon slot. Anything unusable falls back to a plug icon,
+ * so a nav entry is never left without a glyph.
+ */
+function resolveNavIcon(icon) {
+  if (typeof icon === "function") {
+    return { Component: icon };
+  }
+  if (typeof icon === "string" && icon.trim()) {
+    const named = PLUGIN_ICON_BY_NAME[icon.trim()];
+    if (named) {
+      return { Component: named };
+    }
+    // Emoji or other short glyph: render it as text in the icon slot.
+    if ([...icon.trim()].length <= 2) {
+      return { text: icon.trim() };
+    }
+  }
+  return { Component: Plug };
+}
 
 // The host widget refreshes on a timer. 2 s was fine on a desktop tab, but on a
 // phone it is a request every two seconds against the battery for a number
@@ -177,17 +214,17 @@ export default function Layout() {
 
   const navItems = useMemo(() => {
     const items = [
-      { label: t("nav.dashboard"), to: "/dashboard", icon: LayoutDashboard },
-      { label: t("nav.addAgent"), to: "/agents/new", icon: PlusCircle },
-      { label: t("nav.packages"), to: "/packages", icon: Package },
-      { label: t("nav.tasks"), to: "/tasks", icon: Clock },
-      { label: t("nav.logs"), to: "/logs", icon: ClipboardList },
-      { label: t("nav.users"), to: "/users", icon: Users },
-      { label: t("nav.plugins"), to: "/plugins", icon: Plug },
-      { label: t("nav.admin"), to: "/admin", icon: Settings }
+      { label: t("nav.dashboard"), to: "/dashboard", Component: LayoutDashboard },
+      { label: t("nav.addAgent"), to: "/agents/new", Component: PlusCircle },
+      { label: t("nav.packages"), to: "/packages", Component: Package },
+      { label: t("nav.tasks"), to: "/tasks", Component: Clock },
+      { label: t("nav.logs"), to: "/logs", Component: ClipboardList },
+      { label: t("nav.users"), to: "/users", Component: Users },
+      { label: t("nav.plugins"), to: "/plugins", Component: Plug },
+      { label: t("nav.admin"), to: "/admin", Component: Settings }
     ];
     for (const p of pluginNavItems) {
-      items.push({ label: p.label, href: p.href, icon: p.icon || Plug });
+      items.push({ label: p.label, href: p.href, ...resolveNavIcon(p.icon) });
     }
     return items;
   }, [t, pluginNavItems]);
@@ -273,14 +310,23 @@ export default function Layout() {
             {/* Nav Items — flex-1 lets the list take the space actually left over
                 instead of a hardcoded viewport calculation that breaks as soon as
                 a plugin adds a nav entry. */}
-            <nav className="flex-1 flex flex-col gap-1.5 overflow-y-auto no-scrollbar -mx-1 px-1">
+            <nav className="flex flex-col gap-1.5 min-h-0 overflow-y-auto no-scrollbar -mx-1 px-1">
               {navItems.map((item) => {
-                const Icon = item.icon;
+                const Icon = item.Component;
                 const isExternal = Boolean(item.href);
 
                 const linkContent = (
                   <>
-                    <Icon size={18} className="shrink-0" />
+                    {Icon ? (
+                      <Icon size={18} className="shrink-0" />
+                    ) : (
+                      <span
+                        className="shrink-0 w-[18px] text-center text-base leading-none"
+                        aria-hidden="true"
+                      >
+                        {item.text}
+                      </span>
+                    )}
                     <span className={`${labelClass} transition-all duration-300 truncate`}>
                       {item.label}
                     </span>
@@ -315,8 +361,9 @@ export default function Layout() {
               })}
             </nav>
 
-            {/* User & Logout */}
-            <div className="mt-6 pt-5 border-t border-white/5 flex flex-col gap-3 shrink-0">
+            {/* User & Logout — sits right under the last menu entry rather than
+                being pinned to the bottom of the sidebar. */}
+            <div className="mt-5 pt-5 border-t border-white/5 flex flex-col gap-3 shrink-0">
               <div className={`${labelClass} transition-opacity duration-300 min-w-0`}>
                 <p className="text-xs text-slate-500 mb-0.5">{t("nav.signedInAs")}</p>
                 <p className="text-sm font-semibold text-white truncate">{user?.username || "—"}</p>
@@ -331,6 +378,9 @@ export default function Layout() {
                 <span className={labelClass}>{t("nav.logout")}</span>
               </button>
             </div>
+
+            {/* Absorbs the leftover height so nothing is pinned to the bottom. */}
+            <div className="flex-1" aria-hidden="true" />
           </div>
         </aside>
 

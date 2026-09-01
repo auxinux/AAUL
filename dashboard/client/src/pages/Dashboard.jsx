@@ -763,19 +763,49 @@ export default function Dashboard() {
 
     return (
       <div className="card space-y-5">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/5 pb-4">
-          <h3 className="text-sm font-bold uppercase tracking-[0.3em] text-slate-500">
-            {t("metrics.fleetTitle")}
-          </h3>
-          <span className="text-[10px] font-medium uppercase tracking-widest text-slate-500">
-            {fleetHealth.reportingAgents}/{fleetHealth.totalAgents}
+        {/* This panel averages the MANAGED MACHINES. The dashboard server's own
+            usage is shown separately (top bar + "Dashboard host" panel), so the
+            heading says explicitly what is being measured — three CPU figures on
+            one page are otherwise impossible to tell apart. */}
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-white/5 pb-4">
+          <div className="min-w-0">
+            <h3 className="text-sm font-bold uppercase tracking-[0.3em] text-slate-500">
+              {t("metrics.fleetTitle")}
+            </h3>
+            <p className="text-xs text-slate-500 mt-1">
+              {t("metrics.fleetSubtitle", { n: fleetHealth.reportingAgents })}
+            </p>
+          </div>
+          <span className="badge badge-neutral shrink-0">
+            {t("metrics.reporting", {
+              n: fleetHealth.reportingAgents,
+              total: fleetHealth.totalAgents
+            })}
           </span>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-3">
-          <MetricBar label={t("metrics.cpu")} percent={fleetHealth.averages?.cpuPercent} icon={Cpu} />
-          <MetricBar label={t("metrics.memory")} percent={fleetHealth.averages?.memoryPercent} icon={Activity} />
-          <MetricBar label={t("metrics.disk")} percent={fleetHealth.averages?.diskPercent} icon={Server} />
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
+            <MetricBar
+              label={t("metrics.avgCpu")}
+              percent={fleetHealth.averages?.cpuPercent}
+              icon={Cpu}
+            />
+          </div>
+          <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
+            <MetricBar
+              label={t("metrics.avgMemory")}
+              percent={fleetHealth.averages?.memoryPercent}
+              icon={Activity}
+            />
+          </div>
+          <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
+            <MetricBar
+              label={t("metrics.avgDisk")}
+              percent={fleetHealth.averages?.diskPercent}
+              icon={Server}
+            />
+          </div>
         </div>
 
         {anyPressure ? (
