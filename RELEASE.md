@@ -1,7 +1,7 @@
 ---
-dashboard: 0.11.0
+dashboard: 0.12.0
 agent: 0.9.1
-date: 2026-08-14
+date: 2026-09-01
 ---
 
 <!--
@@ -16,7 +16,7 @@ Ce fichier est la référence de version consultée par chaque installation AAUL
 
 | Composant | Version publiée |
 |-----------|-----------------|
-| Dashboard | `0.11.0` |
+| Dashboard | `0.12.0` |
 | Agent     | `0.9.1` |
 
 Pour mettre à jour une installation existante :
@@ -26,6 +26,23 @@ cd ~/AAUL && git pull && ./install.sh
 ```
 
 ## Notes de version
+
+### v0.12.0 — 2026-09-01 — Métriques des machines, sécurité des paquets et interface mobile
+
+- Signes vitaux en direct : chaque machine rapporte son CPU, sa mémoire, son disque et sa charge à chaque contact, visibles sur les cartes du tableau de bord et détaillés sur la page de la machine avec un historique de 24 heures.
+- Nouveau panneau « Machines gérées » : moyennes du parc et liste des machines sous pression (CPU, mémoire ou disque au-delà des seuils).
+- Les mises à jour de sécurité sont maintenant identifiées et mises en avant dans la vue Paquets, avec le nombre de machines concernées et un bouton pour appliquer uniquement les correctifs de sécurité.
+- Rétention des logs configurable (par âge et par taille), appliquée localement par chaque agent. Le log du jour n'est jamais supprimé.
+- Page Logs repensée : recherche, coloration par niveau, téléchargement et nettoyage immédiat d'une machine.
+- Notification de nouvelle version : le tableau de bord signale discrètement qu'une version plus récente est publiée, avec vérification manuelle depuis cette fenêtre.
+- Interface utilisable sur mobile et tablette : le menu ne recouvre plus la page, se ferme à la navigation et le contenu s'adapte aux petits écrans.
+- Interface web de l'agent : mise en page corrigée, fenêtres de confirmation intégrées à la page, et nouvelle action de redémarrage protégée par mot de passe administrateur.
+- Correctif : les fenêtres modales s'affichaient hors écran sur les pages longues.
+- Correctif : les paquets Homebrew versionnés (openssl@3) étaient refusés et faisaient échouer toute la mise à jour groupée.
+- Correctif : la mise à jour groupée annonçait « 0 machine » sans expliquer que la gestion des paquets n'était pas activée sur les machines.
+- Correctif : l'installation Windows s'interrompait sur une erreur pip ; Python est désormais détecté correctement et installé automatiquement si absent.
+- Correctif : l'installation échouait silencieusement lorsque npm bloquait la compilation des modules natifs (sqlite3, bcrypt).
+- Correctif : plusieurs libellés s'affichaient en anglais ou sous forme de clé brute en français.
 
 ### v0.11.0 — 2026-08-14 — Gestion des paquets à l'échelle de la flotte
 
