@@ -10,6 +10,7 @@
     "dev:client": "npm --prefix client run dev",
     "dev:all": "node scripts/dev-all.js",
     "build:client": "npm --prefix client run build",
+    "check:refs": "node scripts/check-client-refs.mjs client/src",
     "test:security": "node server/utils/command-policy.test.js",
     "start": "NODE_ENV=production node server/index.js"
   },

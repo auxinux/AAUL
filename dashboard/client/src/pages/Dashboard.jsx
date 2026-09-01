@@ -27,7 +27,8 @@ import {
   LayoutGrid,
   List,
   Activity,
-  ShieldAlert
+  ShieldAlert,
+  Cpu
 } from "lucide-react";
 import { apiFetch } from "../lib/api.js";
 import MetricBar, { MetricTrio } from "../components/MetricBar.jsx";

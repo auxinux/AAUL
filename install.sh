@@ -620,6 +620,18 @@ build_client() {
     warn "Build React embarqué conservé (--no-build)"
     return
   fi
+  # Un build Vite réussit sur du code qui référence une variable jamais importée :
+  # l'erreur n'apparaît que dans le navigateur (ReferenceError) et vide la page.
+  # On vérifie donc AVANT de builder, sinon on livre un dashboard blanc.
+  if [ -f "$INSTALL_DIR/dashboard/scripts/check-client-refs.mjs" ]; then
+    if ! (cd "$INSTALL_DIR/dashboard" && run_as_user npm run --silent check:refs); then
+      die "Références non définies détectées dans le client React.
+
+Ces erreurs passent le build mais vident la page dans le navigateur.
+Installation interrompue avant de livrer un dashboard cassé."
+    fi
+  fi
+
   log "Build React (production)"
   (cd "$INSTALL_DIR/dashboard" && \
     run_as_user npm run build:client 2>&1 | tail -5)
