@@ -485,12 +485,123 @@ $TMP_BUNDLE = Join-Path $env:TEMP 'agentautoupdate-latest.tar.gz'
 $POLLER_TASK = 'AgentAutoUpdate Poller'
 $RUNNER_TASK = 'AgentAutoUpdate Runner'
 
-function Get-PythonCommand {
-    $python = Get-Command python -ErrorAction SilentlyContinue
-    if (-not $python) {
-        throw 'Python 3 is required on Windows 11. Install Python 3.12+ first.'
+# --- Prerequisites -------------------------------------------------------
+#
+# On a fresh Windows 11, "Get-Command python" SUCCEEDS even with no Python
+# installed: it resolves the Microsoft Store alias stub under WindowsApps,
+# which prints "Python was not found..." and exits without doing anything.
+# The old check therefore never fired, "python -m venv" silently did nothing,
+# and the install died later on a confusing "pip.exe is not recognized".
+# So we validate that the interpreter actually RUNS, and install it if not.
+
+$MIN_PYTHON_MAJOR = 3
+$MIN_PYTHON_MINOR = 9
+
+function Test-IsElevated {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+# True only if the path is a real interpreter of a high enough version.
+function Test-PythonCandidate([string]$Path) {
+    if (-not $Path) { return $false }
+    # The Store alias lives under WindowsApps and is not a real interpreter.
+    if ($Path -like '*\\WindowsApps\\*') { return $false }
+    $version = $null
+    try {
+        $version = & $Path -c "import sys; print('%d.%d' % sys.version_info[:2])" 2>$null
+    } catch {
+        return $false
     }
-    return $python.Source
+    if ($LASTEXITCODE -ne 0 -or -not $version) { return $false }
+    $parts = "$version".Trim().Split('.')
+    if ($parts.Count -lt 2) { return $false }
+    $major = 0; $minor = 0
+    if (-not [int]::TryParse($parts[0], [ref]$major)) { return $false }
+    if (-not [int]::TryParse($parts[1], [ref]$minor)) { return $false }
+    if ($major -lt $MIN_PYTHON_MAJOR) { return $false }
+    if ($major -eq $MIN_PYTHON_MAJOR -and $minor -lt $MIN_PYTHON_MINOR) { return $false }
+    return $true
+}
+
+function Find-Python {
+    # The py launcher is the most reliable entry point when several versions
+    # coexist, and it is never shadowed by the Store alias.
+    $launcher = Get-Command py -ErrorAction SilentlyContinue
+    if ($launcher) {
+        try {
+            $resolved = & $launcher.Source -3 -c "import sys; print(sys.executable)" 2>$null
+            if ($LASTEXITCODE -eq 0 -and $resolved -and (Test-PythonCandidate $resolved.Trim())) {
+                return $resolved.Trim()
+            }
+        } catch { }
+    }
+
+    foreach ($name in @('python', 'python3')) {
+        foreach ($cmd in @(Get-Command $name -All -ErrorAction SilentlyContinue)) {
+            if (Test-PythonCandidate $cmd.Source) { return $cmd.Source }
+        }
+    }
+
+    # winget installs outside the current session's PATH, so look where it puts
+    # things rather than requiring the user to open a new shell.
+    $roots = @(
+        (Join-Path $env:ProgramFiles 'Python*'),
+        (Join-Path \${env:ProgramFiles(x86)} 'Python*'),
+        (Join-Path $env:LOCALAPPDATA 'Programs\\Python\\Python*')
+    )
+    foreach ($root in $roots) {
+        if (-not $root) { continue }
+        foreach ($dir in @(Get-Item $root -ErrorAction SilentlyContinue | Sort-Object Name -Descending)) {
+            $candidate = Join-Path $dir.FullName 'python.exe'
+            if ((Test-Path $candidate) -and (Test-PythonCandidate $candidate)) { return $candidate }
+        }
+    }
+    return $null
+}
+
+function Install-Python {
+    $winget = Get-Command winget -ErrorAction SilentlyContinue
+    if (-not $winget) {
+        throw @'
+Python 3 est absent et winget n'est pas disponible pour l'installer.
+
+Installez Python puis relancez cette commande :
+  https://www.python.org/downloads/windows/
+  (cochez « Add python.exe to PATH » pendant l'installation)
+'@
+    }
+
+    Write-Host 'Python 3 absent — installation via winget...'
+    & $winget.Source install --id Python.Python.3.12 --source winget --scope machine \`
+        --silent --accept-package-agreements --accept-source-agreements
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "winget a retourne le code $LASTEXITCODE — verification malgre tout..."
+    }
+
+    # Pick up PATH changes made by the installer without reopening a shell.
+    $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+    $env:Path = @($machinePath, $userPath) -ne $null -join ';'
+}
+
+function Get-PythonCommand {
+    $python = Find-Python
+    if ($python) { return $python }
+
+    Install-Python
+    $python = Find-Python
+    if (-not $python) {
+        throw @'
+Python 3 reste introuvable apres l'installation.
+
+Ouvrez une NOUVELLE fenetre PowerShell (administrateur) et relancez la commande
+d'installation. Si le probleme persiste, installez Python manuellement :
+  https://www.python.org/downloads/windows/
+'@
+    }
+    return $python
 }
 
 function Get-HmacSha256Hex([string]$Value, [string]$Secret) {
@@ -503,11 +614,36 @@ function Get-HmacSha256Hex([string]$Value, [string]$Secret) {
     }
 }
 
+# Writing to C:\\ProgramData and registering a SYSTEM scheduled task both need
+# elevation. Saying so up front beats failing halfway through.
+if (-not (Test-IsElevated)) {
+    throw @'
+Cette installation doit etre lancee en tant qu'administrateur.
+
+Ouvrez PowerShell avec « Executer en tant qu'administrateur », puis relancez la
+commande d'installation.
+'@
+}
+
+if (-not (Get-Command tar -ErrorAction SilentlyContinue)) {
+    throw "La commande 'tar' est introuvable. Elle est fournie avec Windows 10 1803+ et Windows 11."
+}
+
 New-Item -ItemType Directory -Force -Path $INSTALL_DIR,$LOG_DIR | Out-Null
 $python = Get-PythonCommand
+Write-Host "Python utilise : $python"
 
 & $python -m venv $VENV_DIR
-& "$VENV_DIR\\Scripts\\pip.exe" install --upgrade pip --quiet
+$PIP = Join-Path $VENV_DIR 'Scripts\\pip.exe'
+$VENV_PYTHON = Join-Path $VENV_DIR 'Scripts\\python.exe'
+# Never assume the venv was created: a Store alias or a broken install leaves an
+# empty directory behind, and the next command would fail with an unhelpful
+# "pip.exe is not recognized".
+if (-not (Test-Path $PIP) -or -not (Test-Path $VENV_PYTHON)) {
+    throw "Echec de creation de l'environnement Python dans $VENV_DIR (pip introuvable). Interpreteur utilise : $python"
+}
+
+& $PIP install --upgrade pip --quiet
 
 $response = Invoke-WebRequest -Uri "$DASHBOARD_URL/agent/latest.tar.gz" \`
     -Headers @{ Authorization = "Bearer $API_TOKEN" } \`
@@ -534,7 +670,7 @@ if (Test-Path $APP_DIR) {
 }
 New-Item -ItemType Directory -Force -Path $APP_DIR | Out-Null
 tar -xzf $TMP_BUNDLE -C $APP_DIR
-& "$VENV_DIR\\Scripts\\pip.exe" install -r "$APP_DIR\\requirements.txt" --quiet
+& $PIP install -r "$APP_DIR\\requirements.txt" --quiet
 
 @{
     agentId = $AGENT_ID

@@ -80,6 +80,21 @@ Agent package updates are implemented for:
 - macOS through `softwareupdate`, plus Homebrew when present
 - Windows 11 through `winget` and Windows Update APIs
 
+### Windows prerequisites
+
+The generated PowerShell installer takes care of these itself:
+
+- **Administrator rights** — required to write to `C:\ProgramData` and to
+  register the SYSTEM scheduled task. The script stops with a clear message if
+  it is not elevated, instead of failing halfway through.
+- **Python 3.9+** — installed automatically with
+  `winget install Python.Python.3.12` when missing. Note that on a clean
+  Windows 11, `python` resolves to a Microsoft Store *alias* that installs
+  nothing; the installer detects that stub and ignores it rather than trusting
+  it. If winget is unavailable, the script tells you to install Python manually.
+- **`tar`** — shipped with Windows 10 1803+ and Windows 11; the script checks
+  for it up front.
+
 Service management is implemented through:
 
 - `systemd` on Linux
