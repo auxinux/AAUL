@@ -479,24 +479,55 @@ native_modules_broken() {
   printf "%s" "${out# }"
 }
 
-# Tente de reconstruire les modules donnés. D'abord avec les binaires
-# précompilés (rapide), puis depuis les sources si nécessaire.
+# Exécute le script `install` d'un paquet EXACTEMENT comme npm le ferait
+# (cwd = dossier du paquet, node_modules/.bin en tête du PATH) mais sans passer
+# par npm — donc sans être soumis à sa politique de blocage des scripts.
+#
+# C'est le seul recours fiable : sur les npm récents, `npm rebuild` est bloqué
+# au même titre que `npm ci` ("npm warn rebuild N packages had install scripts
+# blocked"), et il retourne malgré tout "rebuilt dependencies successfully".
+run_package_install_script() {
+  local pkg="$1"
+  local dashdir="$INSTALL_DIR/dashboard"
+  local pkgdir="$dashdir/node_modules/$pkg"
+  local script
+
+  [ -d "$pkgdir" ] || return 1
+  script="$(run_as_user node -p \
+    "try{require('$pkgdir/package.json').scripts.install||''}catch(e){''}" 2>/dev/null)"
+  [ -n "$script" ] || return 1
+
+  info "$pkg : $script"
+  run_as_user sh -c \
+    "cd \"$pkgdir\" && export PATH=\"$dashdir/node_modules/.bin:\$PATH\" && $script"
+}
+
+# Tente de rendre les modules donnés fonctionnels.
 rebuild_native_modules() {
-  local mods="$1" logf
+  local mods="$1" mod logf
   logf="$(mktemp)"
+
+  # 1) Voie normale. Suffit sur les npm qui n'appliquent pas de politique de
+  #    blocage des scripts d'installation.
   (cd "$INSTALL_DIR/dashboard" && run_as_user npm rebuild $mods --foreground-scripts) \
     >"$logf" 2>&1 || true
   if [ -z "$(native_modules_broken "$mods")" ]; then
     rm -f "$logf"
     return 0
   fi
-  info "Binaires précompilés indisponibles — compilation depuis les sources..."
-  (cd "$INSTALL_DIR/dashboard" && run_as_user npm rebuild $mods --build-from-source --foreground-scripts) \
-    >>"$logf" 2>&1 || true
+
+  # 2) npm n'a pas exécuté les scripts : on les lance nous-mêmes. Ces scripts
+  #    téléchargent un binaire précompilé et retombent sur node-gyp au besoin,
+  #    donc ce chemin couvre aussi la compilation depuis les sources.
+  info "npm n'a pas exécuté les scripts d'installation — exécution directe"
+  for mod in $mods; do
+    run_package_install_script "$mod" >>"$logf" 2>&1 || true
+  done
   if [ -z "$(native_modules_broken "$mods")" ]; then
     rm -f "$logf"
     return 0
   fi
+
   tail -25 "$logf"
   rm -f "$logf"
   return 1
@@ -520,12 +551,25 @@ planterait en boucle.
 À ce stade le service est DÉJÀ arrêté et le nouveau code DÉJÀ copié dans
 $INSTALL_DIR. Deux options :
 
-1) Corriger puis relancer ce script :
+1) Autoriser les scripts d'installation puis relancer ce script (npm récent) :
      cd $INSTALL_DIR/dashboard
-     npm rebuild $broken --build-from-source --foreground-scripts
-     node -e \"require('sqlite3'); require('bcrypt')\"   # doit ne rien afficher
-   Vérifiez aussi les outils de compilation : build-essential, python3,
-   python3-setuptools, et le paquet python3-distutils si votre Python est < 3.12.
+     npm install-scripts approve sqlite3
+     npm install-scripts approve bcrypt
+     npm rebuild sqlite3 bcrypt
+
+   Ou exécuter les scripts directement (fonctionne sur toutes les versions) :
+     cd $INSTALL_DIR/dashboard/node_modules/sqlite3
+     PATH=\"$INSTALL_DIR/dashboard/node_modules/.bin:\$PATH\" \\
+       sh -c 'prebuild-install -r napi || node-gyp rebuild'
+     cd $INSTALL_DIR/dashboard/node_modules/bcrypt
+     PATH=\"$INSTALL_DIR/dashboard/node_modules/.bin:\$PATH\" \\
+       sh -c 'node-pre-gyp install --fallback-to-build'
+
+   Vérifier ensuite (doit ne rien afficher) :
+     cd $INSTALL_DIR/dashboard && node -e \"require('sqlite3'); require('bcrypt')\"
+
+   Si la compilation est nécessaire, vérifiez les outils : build-essential,
+   python3, python3-setuptools (et python3-distutils si Python < 3.12).
 
 2) Revenir à la version précédente depuis la sauvegarde :
      sudo rsync -a --delete ${BACKUP_DIR:-$BACKUP_ROOT/<horodatage>}/ $INSTALL_DIR/

@@ -408,9 +408,10 @@ deploy it on a fleet you care about:
   install scripts by default (`install scripts blocked because they are not
   covered by allowScripts`), in which case `npm ci` succeeds but the binary is
   never fetched and the server dies at boot with *Could not locate the bindings
-  file*. `install.sh` now detects this, rebuilds the modules, and aborts with
-  instructions rather than restarting a service that cannot start. If you
-  install dependencies by hand, verify with:
+  file*. Note that `npm rebuild` is blocked by the same policy and still reports
+  success. `install.sh` detects this, runs each package's own install script
+  directly (bypassing npm), and aborts with instructions rather than restarting
+  a service that cannot start. If you install dependencies by hand, verify with:
 
   ```bash
   cd /opt/AAUL/dashboard
