@@ -1,0 +1,342 @@
+/**
+ * Published-version watcher.
+ *
+ * Periodically fetches RELEASE.md from the project repository and compares the
+ * versions published there with the ones this installation is running. The
+ * result is cached in memory and surfaced discreetly in the UI; nothing is ever
+ * downloaded or installed automatically.
+ *
+ * Design notes:
+ * - The check is OFF-able (`updateCheckEnabled`). A fleet on an isolated
+ *   network would otherwise log a failed outbound request every interval.
+ * - A failure is never fatal and never bubbles up as a visible error: it is
+ *   stored in the cache and only shown inside the release-notes window.
+ * - Like utils/monitor.js, an SSE event is broadcast only when the state
+ *   CHANGES, so browsers are not spammed on every tick.
+ */
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+import { getSetting } from "./settings.js";
+import { broadcastSSE } from "./sse.js";
+import { readVersion } from "../routes/bundle.js";
+
+// Public raw URL of RELEASE.md on the project's Gitea instance. Readable
+// anonymously; overridable via the `updateReleaseUrl` setting for an internal
+// mirror or for AAUL-Cloud.
+const DEFAULT_RELEASE_URL =
+  "https://git.auxinux.ca/Auxinux/AAUL/raw/branch/main/RELEASE.md";
+
+const DEFAULT_INTERVAL_MINUTES = 30;
+const MIN_INTERVAL_MINUTES = 5;
+const MAX_INTERVAL_MINUTES = 1440;
+
+const FETCH_TIMEOUT_MS = 10000;
+// RELEASE.md is a few kilobytes. Anything much larger means we are not talking
+// to what we think we are, so stop reading rather than buffer it.
+const MAX_BODY_BYTES = 256 * 1024;
+
+let timer = null;
+let currentIntervalMs = null;
+
+let cache = {
+  checkedAt: null,
+  ok: false,
+  error: null,
+  updateAvailable: false,
+  current: { dashboard: null, agent: null },
+  latest: { dashboard: null, agent: null, date: null },
+  source: DEFAULT_RELEASE_URL
+};
+
+// ---------------------------------------------------------------------------
+//  Version helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Compare two semver-ish versions numerically. Returns >0 if a is newer.
+ *
+ * This must be a real ordering, not a string comparison: "0.9.0" > "0.11.0"
+ * lexicographically, which would hide every update after 0.9. (The agent's own
+ * self-update deliberately compares strings — any change triggers an update
+ * there — but that logic cannot be reused here.)
+ */
+export function compareVersions(a, b) {
+  const parse = (v) =>
+    String(v || "")
+      .trim()
+      .split(".")
+      .map((part) => Number.parseInt(part, 10));
+
+  const left = parse(a);
+  const right = parse(b);
+  const length = Math.max(left.length, right.length);
+
+  for (let i = 0; i < length; i += 1) {
+    const x = Number.isFinite(left[i]) ? left[i] : 0;
+    const y = Number.isFinite(right[i]) ? right[i] : 0;
+    if (x !== y) return x - y;
+  }
+  return 0;
+}
+
+const VERSION_RE = /^\d+\.\d+\.\d+$/;
+
+/**
+ * Extract the front-matter block at the top of RELEASE.md.
+ * Returns { dashboard, agent, date } or null when the document is not one.
+ */
+export function parseReleaseDocument(text) {
+  if (typeof text !== "string" || text.length === 0) {
+    return null;
+  }
+  const match = text.match(/^﻿?---\r?\n([\s\S]*?)\r?\n---/);
+  if (!match) {
+    return null;
+  }
+
+  const fields = {};
+  for (const line of match[1].split(/\r?\n/)) {
+    const kv = line.match(/^\s*([A-Za-z][A-Za-z0-9_-]*)\s*:\s*(.+?)\s*$/);
+    if (kv) {
+      fields[kv[1].toLowerCase()] = kv[2].replace(/^["']|["']$/g, "");
+    }
+  }
+
+  // The dashboard version is the one an operator acts on, so it is required.
+  if (!VERSION_RE.test(fields.dashboard || "")) {
+    return null;
+  }
+  return {
+    dashboard: fields.dashboard,
+    agent: VERSION_RE.test(fields.agent || "") ? fields.agent : null,
+    date: fields.date || null
+  };
+}
+
+// ---------------------------------------------------------------------------
+//  Local versions
+// ---------------------------------------------------------------------------
+
+// Resolved from this module, not from process.cwd(): the CLI and the tests run
+// from other directories than the systemd unit does.
+const DASHBOARD_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+
+function readLocalVersion(absolutePath) {
+  try {
+    const value = fs.readFileSync(absolutePath, "utf8").trim();
+    return VERSION_RE.test(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Versions this installation is actually running. */
+export function getInstalledVersions() {
+  // The agent version is whatever bundle this dashboard serves to its fleet,
+  // which is exactly what routes/bundle.js already resolves.
+  let agent = null;
+  try {
+    const bundled = readVersion();
+    agent = VERSION_RE.test(bundled) ? bundled : null;
+  } catch {
+    agent = null;
+  }
+  return {
+    dashboard: readLocalVersion(path.join(DASHBOARD_DIR, "VERSION")),
+    agent
+  };
+}
+
+// ---------------------------------------------------------------------------
+//  Settings
+// ---------------------------------------------------------------------------
+
+async function isEnabled() {
+  const value = await getSetting("updateCheckEnabled");
+  // Absent means "not configured yet" — on by default.
+  return value === null || value === undefined || value === "true";
+}
+
+async function resolveIntervalMinutes() {
+  const value = Number.parseInt(await getSetting("updateCheckIntervalMinutes"), 10);
+  if (Number.isFinite(value) && value >= MIN_INTERVAL_MINUTES && value <= MAX_INTERVAL_MINUTES) {
+    return value;
+  }
+  return DEFAULT_INTERVAL_MINUTES;
+}
+
+async function resolveReleaseUrl() {
+  const value = (await getSetting("updateReleaseUrl")) || "";
+  const trimmed = String(value).trim();
+  if (!trimmed) return DEFAULT_RELEASE_URL;
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol === "http:" || url.protocol === "https:") {
+      return url.href;
+    }
+  } catch {
+    // Fall through to the default rather than failing the check.
+  }
+  return DEFAULT_RELEASE_URL;
+}
+
+// ---------------------------------------------------------------------------
+//  Fetching
+// ---------------------------------------------------------------------------
+
+async function fetchReleaseDocument(url) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      redirect: "follow",
+      headers: { Accept: "text/plain, text/markdown, */*" }
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const declared = Number.parseInt(response.headers.get("content-length") || "", 10);
+    if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
+      throw new Error("Réponse trop volumineuse");
+    }
+    const text = await response.text();
+    if (text.length > MAX_BODY_BYTES) {
+      throw new Error("Réponse trop volumineuse");
+    }
+    return text;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// ---------------------------------------------------------------------------
+//  Check
+// ---------------------------------------------------------------------------
+
+/**
+ * Run one check.
+ *
+ * `force` bypasses the enabled flag — it backs the manual "check now" button,
+ * which must work even when the periodic check is turned off.
+ */
+export async function runUpdateCheck({ force = false } = {}) {
+  const installed = getInstalledVersions();
+
+  if (!force && !(await isEnabled())) {
+    cache = {
+      ...cache,
+      checkedAt: new Date().toISOString(),
+      ok: false,
+      error: null,
+      disabled: true,
+      updateAvailable: false,
+      current: installed
+    };
+    return cache;
+  }
+
+  const url = await resolveReleaseUrl();
+  const previouslyAvailable = cache.updateAvailable;
+  const previousLatest = cache.latest?.dashboard || null;
+
+  try {
+    const text = await fetchReleaseDocument(url);
+    const published = parseReleaseDocument(text);
+    if (!published) {
+      throw new Error("RELEASE.md illisible (en-tête de version absent)");
+    }
+
+    const updateAvailable =
+      Boolean(installed.dashboard) &&
+      compareVersions(published.dashboard, installed.dashboard) > 0;
+
+    cache = {
+      checkedAt: new Date().toISOString(),
+      ok: true,
+      error: null,
+      disabled: false,
+      updateAvailable,
+      current: installed,
+      latest: published,
+      source: url
+    };
+
+    // Only announce a genuine transition, so open browsers are not nudged on
+    // every tick for a version they already know about.
+    if (updateAvailable && (!previouslyAvailable || previousLatest !== published.dashboard)) {
+      broadcastSSE("update:available", {
+        current: installed.dashboard,
+        latest: published.dashboard
+      });
+      console.log(
+        `[update-check] Nouvelle version disponible : ${installed.dashboard} -> ${published.dashboard}`
+      );
+    }
+  } catch (err) {
+    const message = err?.name === "AbortError" ? "Délai dépassé" : err?.message || String(err);
+    cache = {
+      ...cache,
+      checkedAt: new Date().toISOString(),
+      ok: false,
+      error: message,
+      disabled: false,
+      current: installed,
+      source: url
+    };
+    // Intentionally not console.error: an unreachable repository is an
+    // expected condition on isolated networks, not a fault of this server.
+    console.log(`[update-check] Vérification impossible (${message})`);
+  }
+
+  return cache;
+}
+
+export function getUpdateStatus() {
+  return { ...cache };
+}
+
+// ---------------------------------------------------------------------------
+//  Scheduling
+// ---------------------------------------------------------------------------
+
+async function schedule() {
+  const minutes = await resolveIntervalMinutes();
+  const intervalMs = minutes * 60 * 1000;
+  if (timer && currentIntervalMs === intervalMs) {
+    return;
+  }
+  if (timer) clearInterval(timer);
+  currentIntervalMs = intervalMs;
+  timer = setInterval(() => {
+    runUpdateCheck()
+      .catch(() => {})
+      // Re-read the interval each tick so a settings change takes effect
+      // without restarting the server.
+      .finally(() => {
+        schedule().catch(() => {});
+      });
+  }, intervalMs);
+  if (typeof timer.unref === "function") timer.unref();
+}
+
+export function startUpdateCheck() {
+  if (timer) return;
+  // Let the server finish booting before reaching out to the network.
+  setTimeout(() => {
+    runUpdateCheck().catch(() => {});
+  }, 15000);
+  schedule().catch((err) => {
+    console.log(`[update-check] Planification impossible : ${err?.message || err}`);
+  });
+  console.log("[update-check] Vérification de version démarrée");
+}
+
+export function stopUpdateCheck() {
+  if (timer) {
+    clearInterval(timer);
+    timer = null;
+    currentIntervalMs = null;
+  }
+}

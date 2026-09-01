@@ -508,6 +508,9 @@ export default function Admin() {
   const [internetBaseUrl, setInternetBaseUrl] = useState("");
   const [defaultPollSeconds, setDefaultPollSeconds] = useState("15");
   const [metricsRetentionDays, setMetricsRetentionDays] = useState("30");
+  const [updateCheckEnabled, setUpdateCheckEnabled] = useState(true);
+  const [updateCheckIntervalMinutes, setUpdateCheckIntervalMinutes] = useState("30");
+  const [updateReleaseUrl, setUpdateReleaseUrl] = useState("");
   const [serverConfig, setServerConfig] = useState({
     http: { enabled: true, apiPort: 3001, webPort: 5173 },
     https: { enabled: false, apiPort: 3002, webPort: 5174 },
@@ -536,6 +539,9 @@ export default function Admin() {
       setInternetBaseUrl(settings.internetBaseUrl || "");
       setDefaultPollSeconds(settings.defaultPollSeconds || "15");
       setMetricsRetentionDays(settings.metricsRetentionDays || "30");
+      setUpdateCheckEnabled(settings.updateCheckEnabled !== false);
+      setUpdateCheckIntervalMinutes(settings.updateCheckIntervalMinutes || "30");
+      setUpdateReleaseUrl(settings.updateReleaseUrl || "");
       if (serverRes.ok && serverRes.config) setServerConfig(serverRes.config);
       setIps(ipsRes.ips || []);
     } catch (err) {
@@ -556,7 +562,10 @@ export default function Admin() {
           publicIp,
           internetBaseUrl,
           defaultPollSeconds,
-          metricsRetentionDays
+          metricsRetentionDays,
+          updateCheckEnabled,
+          updateCheckIntervalMinutes,
+          updateReleaseUrl
         })
       });
       setMessage("Settings updated successfully.");
@@ -659,6 +668,59 @@ export default function Admin() {
                onChange={(e) => setMetricsRetentionDays(e.target.value)}
              />
              <p className="text-xs text-slate-500">{t("metrics.retentionHint")}</p>
+           </div>
+
+           <div className="space-y-4 pt-4 border-t border-white/5">
+             <label className="flex items-start gap-3 cursor-pointer">
+               <input
+                 type="checkbox"
+                 className="mt-1 rounded border-white/10 bg-black/40 text-brand-500 focus:ring-brand-500/20"
+                 checked={updateCheckEnabled}
+                 onChange={(e) => setUpdateCheckEnabled(e.target.checked)}
+               />
+               <span className="min-w-0">
+                 <span className="block text-sm font-semibold text-white">
+                   {t("updates.settingTitle")}
+                 </span>
+                 <span className="block text-xs text-slate-500 mt-0.5">
+                   {t("updates.settingHint")}
+                 </span>
+               </span>
+             </label>
+
+             {updateCheckEnabled && (
+               <>
+                 <div className="space-y-2">
+                   <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500 ml-1">
+                     {t("updates.intervalLabel")}
+                   </label>
+                   <select
+                     className="input"
+                     value={updateCheckIntervalMinutes}
+                     onChange={(e) => setUpdateCheckIntervalMinutes(e.target.value)}
+                   >
+                     <option value="5">{t("updates.every", { n: 5 })}</option>
+                     <option value="10">{t("updates.every", { n: 10 })}</option>
+                     <option value="30">{t("updates.every", { n: 30 })}</option>
+                     <option value="60">{t("updates.every", { n: 60 })}</option>
+                   </select>
+                 </div>
+
+                 <div className="space-y-2">
+                   <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500 ml-1">
+                     {t("updates.urlLabel")}
+                   </label>
+                   <input
+                     className="input"
+                     type="url"
+                     placeholder={t("updates.urlPlaceholder")}
+                     value={updateReleaseUrl}
+                     onChange={(e) => setUpdateReleaseUrl(e.target.value)}
+                   />
+                   <p className="text-xs text-slate-500">{t("updates.urlHint")}</p>
+                 </div>
+               </>
+             )}
            </div>
          </div>
 

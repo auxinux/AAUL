@@ -120,6 +120,15 @@ if [ "$NO_BUMP" = false ]; then
   echo "$DASHBOARD_VER" > "$DASH_VERSION_FILE"
 
   ok "Versions écrites"
+
+  # RELEASE.md est la référence consultée par chaque installation pour savoir
+  # si une mise à jour existe. On le régénère ici, juste après l'écriture des
+  # versions, pour qu'il ne puisse jamais rester en retard sur la release.
+  if (cd "$ROOT_DIR/dashboard" && node scripts/generate-release-md.mjs); then
+    ok "RELEASE.md régénéré"
+  else
+    die "Échec de la génération de RELEASE.md"
+  fi
 else
   DASHBOARD_VER="$(grep '"version"' "$DASH_PKG" | head -1 | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')"
   AGENT_VER="$(tr -d '[:space:]' < "$AGENT_VERSION_FILE")"

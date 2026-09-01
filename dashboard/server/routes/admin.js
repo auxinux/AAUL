@@ -10,6 +10,8 @@ import { getActorUserId, recordAuditEvent } from "../utils/audit.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const configPath = path.join(__dirname, "..", "..", "config", "config.json");
 
+import { getUpdateStatus, runUpdateCheck } from "../utils/update-check.js";
+
 const router = express.Router();
 
 router.get("/network-ips", requireAdmin, (req, res) => {
@@ -240,6 +242,34 @@ router.get("/health", requireAdmin, async (req, res) => {
       latestAuditAt: latestAudit?.created_at || null
     }
   });
+});
+
+// ---------------------------------------------------------------------------
+//  Published-version check
+// ---------------------------------------------------------------------------
+
+// Read the cached result. Never performs a network call, so the dashboard can
+// render the badge instantly on every page load.
+router.get("/update-check", requireAdmin, (req, res) => {
+  res.json({ ok: true, status: getUpdateStatus() });
+});
+
+// A repeated click must not hammer the repository, so forced checks are
+// throttled per process. The cached result is returned in the meantime.
+const FORCE_MIN_INTERVAL_MS = 10000;
+let lastForcedCheckAt = 0;
+
+router.post("/update-check", requireAdmin, async (req, res) => {
+  const now = Date.now();
+  if (now - lastForcedCheckAt < FORCE_MIN_INTERVAL_MS) {
+    res.json({ ok: true, throttled: true, status: getUpdateStatus() });
+    return;
+  }
+  lastForcedCheckAt = now;
+  // `force` bypasses the enabled flag: the manual button must work even when
+  // the periodic check is turned off.
+  const status = await runUpdateCheck({ force: true });
+  res.json({ ok: true, throttled: false, status });
 });
 
 export default router;

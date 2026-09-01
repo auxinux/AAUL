@@ -15,6 +15,7 @@ import { loadCertificates, watchCertificates } from "./utils/ssl.js";
 import { loadAllPlugins, triggerHook, notifyServerReady } from "./plugins/plugin-loader.js";
 import { addSSEClient } from "./utils/sse.js";
 import { startMonitor } from "./utils/monitor.js";
+import { startUpdateCheck } from "./utils/update-check.js";
 import { requireAdmin } from "./middleware/auth.js";
 
 // Route imports
@@ -177,6 +178,7 @@ await triggerHook("server:start", config);
 await notifyServerReady({ app, httpServer, httpsServer });
 
 startMonitor();
+startUpdateCheck();
 
 const shutdown = async (signal) => {
   console.log(`Received ${signal}, shutting down gracefully...`);

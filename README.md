@@ -367,6 +367,38 @@ day's log is never deleted**, and only files the agent itself produced
 when a disk is filling up. The log viewer supports search, level highlighting
 (errors, warnings, success), line wrapping and download.
 
+## Version checking
+
+`RELEASE.md` at the repository root publishes the versions that are currently
+released. It is **generated**, never hand-edited — `release.sh` rebuilds it from
+`dashboard/client/src/lib/changelog.js` and the `VERSION` files, so the published
+reference cannot lag behind a release.
+
+Each dashboard reads that file periodically and compares it with what it runs.
+When a newer version exists, a small amber badge appears next to the version in
+the footer, and the release-notes window shows what to run:
+
+```bash
+cd ~/AAUL && git pull && ./install.sh
+```
+
+Nothing is ever downloaded or installed automatically — the check only reports.
+
+- Interval and on/off switch live in `Admin`, default every 30 minutes.
+- **Turn it off on an isolated network.** Otherwise the dashboard attempts one
+  outbound request per interval that can never succeed.
+- `Version source` accepts a custom URL if you mirror `RELEASE.md` internally.
+- The release-notes window has a **Check now** button that works even when the
+  periodic check is disabled.
+
+To regenerate the file by hand:
+
+```bash
+cd dashboard
+npm run gen:release      # rewrite RELEASE.md
+npm run check:release    # fail if it is out of date (useful in CI)
+```
+
 ## Beta status & known limitations
 
 AAUL is currently released as a **public beta** (pre-1.0). It is usable and has

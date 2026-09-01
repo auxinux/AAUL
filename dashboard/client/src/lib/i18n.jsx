@@ -509,6 +509,29 @@ const translations = {
       retentionDays: "Keep metric history for (days)",
       retentionHint: "How long the dashboard keeps per-host CPU, memory and disk samples. One sample is stored per host every 5 minutes."
     },
+    updates: {
+      notesTitle: "Release notes",
+      openNotes: "See the release notes",
+      current: "installed",
+      published: "published",
+      availableTitle: "Version {version} is available",
+      availableBody: "This dashboard runs {current}; {latest} has been published. Update from the server shell:",
+      agentLine: "The agent bundle will move to {version}; your machines update themselves afterwards.",
+      upToDate: "This installation is up to date.",
+      lastChecked: "Last checked {time}",
+      neverChecked: "Not checked yet.",
+      checkNow: "Check now",
+      checking: "Checking…",
+      checkFailed: "Check failed: {error}",
+      disabled: "Automatic checking is disabled in Admin.",
+      settingTitle: "Check for new AAUL versions",
+      settingHint: "The dashboard periodically reads the published version from the project repository. Nothing is ever downloaded or installed automatically. Turn this off on an isolated network.",
+      intervalLabel: "Check every",
+      every: "{n} minutes",
+      urlLabel: "Version source (optional)",
+      urlPlaceholder: "https://git.auxinux.ca/Auxinux/AAUL/raw/branch/main/RELEASE.md",
+      urlHint: "Leave empty to use the official project repository. Set it to point at an internal mirror."
+    },
     language: {
       toggle: "FR"
     }
@@ -1020,6 +1043,29 @@ const translations = {
       retentionTitle: "Rétention de l’historique des métriques",
       retentionDays: "Conserver l’historique (jours)",
       retentionHint: "Durée pendant laquelle le tableau de bord conserve les relevés CPU, mémoire et disque de chaque machine. Un relevé est stocké toutes les 5 minutes par machine."
+    },
+    updates: {
+      notesTitle: "Notes de version",
+      openNotes: "Voir les notes de version",
+      current: "installée",
+      published: "publiée",
+      availableTitle: "La version {version} est disponible",
+      availableBody: "Ce tableau de bord utilise la version {current}; la version {latest} est publiée. Mettez à jour depuis le terminal du serveur :",
+      agentLine: "Le bundle agent passera en {version}; vos machines se mettront à jour ensuite d’elles-mêmes.",
+      upToDate: "Cette installation est à jour.",
+      lastChecked: "Dernière vérification {time}",
+      neverChecked: "Aucune vérification effectuée.",
+      checkNow: "Vérifier maintenant",
+      checking: "Vérification…",
+      checkFailed: "Échec de la vérification : {error}",
+      disabled: "La vérification automatique est désactivée dans Admin.",
+      settingTitle: "Vérifier les nouvelles versions d’AAUL",
+      settingHint: "Le tableau de bord lit périodiquement la version publiée dans le dépôt du projet. Rien n’est jamais téléchargé ni installé automatiquement. Désactivez cette option sur un réseau isolé.",
+      intervalLabel: "Vérifier toutes les",
+      every: "{n} minutes",
+      urlLabel: "Source de version (facultatif)",
+      urlPlaceholder: "https://git.auxinux.ca/Auxinux/AAUL/raw/branch/main/RELEASE.md",
+      urlHint: "Laissez vide pour utiliser le dépôt officiel du projet. Renseignez-la pour pointer vers un miroir interne."
     },
     language: {
       toggle: "EN"

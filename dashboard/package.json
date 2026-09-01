@@ -13,6 +13,8 @@
     "check:refs": "node scripts/check-client-refs.mjs client/src",
     "check:i18n": "node scripts/check-i18n.mjs client/src",
     "check:client": "npm run --silent check:refs && npm run --silent check:i18n",
+    "gen:release": "node scripts/generate-release-md.mjs",
+    "check:release": "node scripts/generate-release-md.mjs --check",
     "test:security": "node server/utils/command-policy.test.js",
     "start": "NODE_ENV=production node server/index.js"
   },

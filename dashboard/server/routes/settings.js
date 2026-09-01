@@ -15,6 +15,10 @@ const router = express.Router();
 const DEFAULT_LOG_RETENTION_DAYS = 30;
 const DEFAULT_LOG_MAX_TOTAL_MB = 200;
 const DEFAULT_METRICS_RETENTION_DAYS = 30;
+// Published-version check. On by default; an isolated fleet can turn it off so
+// it stops attempting an outbound request it can never complete.
+const DEFAULT_UPDATE_CHECK_ENABLED = true;
+const DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES = 30;
 
 /**
  * Validate a bounded integer setting.
@@ -63,7 +67,16 @@ router.get("/", requireAdmin, async (req, res) => {
       logMaxTotalMb: settings.logMaxTotalMb || String(DEFAULT_LOG_MAX_TOTAL_MB),
 
       // How long the dashboard keeps per-host metric history (server-side only).
-      metricsRetentionDays: settings.metricsRetentionDays || String(DEFAULT_METRICS_RETENTION_DAYS)
+      metricsRetentionDays: settings.metricsRetentionDays || String(DEFAULT_METRICS_RETENTION_DAYS),
+
+      // Published-version check (see utils/update-check.js).
+      updateCheckEnabled:
+        settings.updateCheckEnabled === undefined
+          ? DEFAULT_UPDATE_CHECK_ENABLED
+          : settings.updateCheckEnabled === "true",
+      updateCheckIntervalMinutes:
+        settings.updateCheckIntervalMinutes || String(DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES),
+      updateReleaseUrl: settings.updateReleaseUrl || ""
     }
   });
 });
@@ -82,7 +95,10 @@ router.post("/", requireAdmin, async (req, res) => {
     internetBaseUrl,
     logRetentionDays,
     logMaxTotalMb,
-    metricsRetentionDays
+    metricsRetentionDays,
+    updateCheckEnabled,
+    updateCheckIntervalMinutes,
+    updateReleaseUrl
   } = req.body || {};
 
   const current = await getSettings();
@@ -113,6 +129,40 @@ router.post("/", requireAdmin, async (req, res) => {
   if (!metricsDays.ok) {
     res.status(400).json({ error: metricsDays.error });
     return;
+  }
+
+  const updateInterval = boundedInt(updateCheckIntervalMinutes, {
+    min: 5, max: 1440,
+    fallback: current.updateCheckIntervalMinutes ?? DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES,
+    label: "updateCheckIntervalMinutes"
+  });
+  if (!updateInterval.ok) {
+    res.status(400).json({ error: updateInterval.error });
+    return;
+  }
+
+  // Same guard as agentLocalWebEnabled: the string "false" is truthy in JS, so a
+  // caller echoing settings back would silently re-enable the check.
+  const updateEnabledValue =
+    updateCheckEnabled === undefined
+      ? (current.updateCheckEnabled === undefined
+          ? DEFAULT_UPDATE_CHECK_ENABLED
+          : current.updateCheckEnabled === "true")
+      : updateCheckEnabled === true || updateCheckEnabled === "true";
+
+  let updateReleaseUrlValue =
+    updateReleaseUrl === undefined ? (current.updateReleaseUrl || "") : "";
+  if (updateReleaseUrl !== undefined && String(updateReleaseUrl).trim()) {
+    try {
+      const parsed = new URL(String(updateReleaseUrl).trim());
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        throw new Error("bad protocol");
+      }
+      updateReleaseUrlValue = parsed.href;
+    } catch {
+      res.status(400).json({ error: "Invalid updateReleaseUrl — must be a valid http/https URL" });
+      return;
+    }
   }
 
   // Absent (undefined) means "leave as-is"; an empty string means "clear it".
@@ -177,7 +227,10 @@ router.post("/", requireAdmin, async (req, res) => {
     internetBaseUrl: internetBaseUrlValue,
     logRetentionDays: logDays.value,
     logMaxTotalMb: logMb.value,
-    metricsRetentionDays: metricsDays.value
+    metricsRetentionDays: metricsDays.value,
+    updateCheckEnabled: updateEnabledValue ? "true" : "false",
+    updateCheckIntervalMinutes: updateInterval.value,
+    updateReleaseUrl: updateReleaseUrlValue
   };
   
   await setSettings(newSettings);

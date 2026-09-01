@@ -30,6 +30,12 @@ Important areas:
   Contains session checks, admin authorization, CSRF checks, and agent request verification.
 - `dashboard/server/utils/`
   Shared server utilities such as token protection, SSL loading, base URL resolution, and SSE broadcasting.
+- `dashboard/server/utils/monitor.js`
+  Periodic watcher that flips agents between online and offline.
+- `dashboard/server/utils/update-check.js`
+  Same periodic pattern, but for the project itself: fetches `RELEASE.md` and
+  reports whether a newer AAUL version has been published. Read-only — it never
+  downloads or installs anything.
 - `dashboard/server/cli.js`
   Local machine CLI used to operate the installed dashboard host.
 
