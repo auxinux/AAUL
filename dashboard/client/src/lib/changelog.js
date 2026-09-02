@@ -18,6 +18,22 @@
  */
 export const CHANGELOG = [
   {
+    version: "0.12.1",
+    date: "2026-09-02",
+    title: {
+      fr: "Alignement du menu réduit",
+      en: "Collapsed menu alignment",
+    },
+    changes: {
+      fr: [
+        "Correctif : dans la barre latérale réduite, la surbrillance de l'élément sélectionné ou survolé était décalée par rapport à l'icône. Les entrées du menu, le bouton de déconnexion et le bouton de repli sont maintenant centrés.",
+      ],
+      en: [
+        "Fix: in the collapsed sidebar, the highlight of the selected or hovered item was offset from its icon. Menu entries, the logout button and the collapse button are now centred.",
+      ],
+    },
+  },
+  {
     version: "0.12.0",
     date: "2026-09-01",
     title: {

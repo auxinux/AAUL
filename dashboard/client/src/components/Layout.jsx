@@ -233,6 +233,14 @@ export default function Layout() {
   // full-width, so labels are always shown there.
   const labelClass = desktopCollapsed ? "lg:hidden" : "";
 
+  // In the collapsed rail the panel is 80px wide; with the sidebar's own padding
+  // that leaves ~32px, which `.nav-pill`'s px-4 consumed entirely. The icon then
+  // overflowed to the right while the highlight stayed pinned left, so the
+  // active item looked off-centre. Collapsed items drop the horizontal padding
+  // and centre their content instead.
+  const railItemClass = desktopCollapsed ? "lg:justify-center lg:px-0" : "";
+  const railPanelClass = desktopCollapsed ? "lg:px-3" : "";
+
   return (
     <div className="min-h-screen flex flex-col">
       <PasswordChangeGate />
@@ -277,9 +285,9 @@ export default function Layout() {
           } fixed inset-y-0 left-0 z-50 w-[85vw] max-w-xs lg:static lg:z-0 lg:translate-x-0 lg:shrink-0 transition-transform duration-300 ease-in-out`}
           aria-label={t("nav.control")}
         >
-          <div className="h-full glass lg:rounded-3xl flex flex-col p-5 sm:p-6 overflow-hidden safe-top safe-bottom">
+          <div className={`h-full glass lg:rounded-3xl flex flex-col p-5 sm:p-6 ${railPanelClass} overflow-hidden safe-top safe-bottom`}>
             {/* Logo Section */}
-            <div className="mb-8 flex items-center justify-between gap-2">
+            <div className={`mb-8 flex items-center gap-2 ${desktopCollapsed ? "lg:justify-center" : "justify-between"}`}>
               <div className={`${labelClass} min-w-0 transition-opacity duration-300`}>
                 <p className="text-[10px] uppercase font-bold tracking-[0.3em] text-brand-400 mb-1">
                   {t("nav.control")}
@@ -338,7 +346,7 @@ export default function Layout() {
                     <a
                       key={item.href}
                       href={item.href}
-                      className="nav-pill nav-pill-inactive"
+                      className={`nav-pill nav-pill-inactive ${railItemClass}`}
                       title={desktopCollapsed ? item.label : undefined}
                     >
                       {linkContent}
@@ -352,7 +360,7 @@ export default function Layout() {
                     to={item.to}
                     title={desktopCollapsed ? item.label : undefined}
                     className={({ isActive }) =>
-                      `nav-pill ${isActive ? "nav-pill-active" : "nav-pill-inactive"}`
+                      `nav-pill ${isActive ? "nav-pill-active" : "nav-pill-inactive"} ${railItemClass}`
                     }
                   >
                     {linkContent}
@@ -371,7 +379,7 @@ export default function Layout() {
               <button
                 type="button"
                 onClick={logout}
-                className="flex items-center gap-3 w-full px-4 py-2.5 rounded-xl text-sm font-medium text-red-400 hover:bg-red-500/10 transition-colors"
+                className={`flex items-center gap-3 w-full px-4 py-2.5 rounded-xl text-sm font-medium text-red-400 hover:bg-red-500/10 transition-colors ${railItemClass}`}
                 title={desktopCollapsed ? t("nav.logout") : undefined}
               >
                 <LogOut size={18} className="shrink-0" />

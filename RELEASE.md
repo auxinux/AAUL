@@ -1,7 +1,7 @@
 ---
-dashboard: 0.12.0
+dashboard: 0.12.1
 agent: 0.9.1
-date: 2026-09-01
+date: 2026-09-02
 ---
 
 <!--
@@ -16,7 +16,7 @@ Ce fichier est la référence de version consultée par chaque installation AAUL
 
 | Composant / Component | Version |
 |-----------------------|---------|
-| Dashboard | `0.12.0` |
+| Dashboard | `0.12.1` |
 | Agent     | `0.9.1` |
 
 ```bash
@@ -24,6 +24,10 @@ cd ~/AAUL && git pull && ./install.sh
 ```
 
 ## Français
+
+### v0.12.1 — 2026-09-02 — Alignement du menu réduit
+
+- Correctif : dans la barre latérale réduite, la surbrillance de l'élément sélectionné ou survolé était décalée par rapport à l'icône. Les entrées du menu, le bouton de déconnexion et le bouton de repli sont maintenant centrés.
 
 ### v0.12.0 — 2026-09-01 — Métriques des machines, sécurité des paquets et interface mobile
 
@@ -171,6 +175,10 @@ cd ~/AAUL && git pull && ./install.sh
 - Tableau de bord temps réel (SSE).
 
 ## English
+
+### v0.12.1 — 2026-09-02 — Collapsed menu alignment
+
+- Fix: in the collapsed sidebar, the highlight of the selected or hovered item was offset from its icon. Menu entries, the logout button and the collapse button are now centred.
 
 ### v0.12.0 — 2026-09-01 — Host metrics, package security and mobile interface
 
