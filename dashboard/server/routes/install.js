@@ -465,7 +465,7 @@ echo "Status: sudo launchctl print system/com.agentautoupdate.poller"
 
 // Windows installer script generated as PowerShell.
 function buildWindowsScript(agent, baseUrl, agentApiToken, scheduleEnabled, scheduleTime, pollSeconds) {
-  return `# Agent Auto Update — Windows Installer
+  return `# Agent Auto Update - Windows Installer
 $ErrorActionPreference = 'Stop'
 
 $DASHBOARD_URL = ${psQuote(baseUrl)}
@@ -569,15 +569,15 @@ Python 3 est absent et winget n'est pas disponible pour l'installer.
 
 Installez Python puis relancez cette commande :
   https://www.python.org/downloads/windows/
-  (cochez « Add python.exe to PATH » pendant l'installation)
+  (cochez "Add python.exe to PATH" pendant l'installation)
 '@
     }
 
-    Write-Host 'Python 3 absent — installation via winget...'
+    Write-Host 'Python 3 absent - installation via winget...'
     & $winget.Source install --id Python.Python.3.12 --source winget --scope machine \`
         --silent --accept-package-agreements --accept-source-agreements
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "winget a retourne le code $LASTEXITCODE — verification malgre tout..."
+        Write-Host "winget a retourne le code $LASTEXITCODE - verification malgre tout..."
     }
 
     # Pick up PATH changes made by the installer without reopening a shell.
@@ -620,7 +620,7 @@ if (-not (Test-IsElevated)) {
     throw @'
 Cette installation doit etre lancee en tant qu'administrateur.
 
-Ouvrez PowerShell avec « Executer en tant qu'administrateur », puis relancez la
+Ouvrez PowerShell avec "Executer en tant qu'administrateur", puis relancez la
 commande d'installation.
 '@
 }
@@ -756,9 +756,17 @@ router.get("/", async (req, res) => {
     if (platform === "windows") {
       res.setHeader("Content-Type", "text/plain; charset=utf-8");
       res.setHeader("Content-Disposition", "inline; filename=aaul-install.ps1");
-      res.send(
-        buildWindowsScript(agent, baseUrl, agentApiToken, scheduleEnabled, scheduleTime, pollSeconds)
+      // Windows PowerShell 5.1 reads a .ps1 WITHOUT a byte-order mark as ANSI
+      // (Windows-1252), not UTF-8. Any non-ASCII byte then decodes to mojibake,
+      // and some of those bytes land on typographic quotes — which PowerShell
+      // accepts as string delimiters. A single accented character was enough to
+      // open a string that never closed and break parsing of the whole file.
+      // The script is kept pure ASCII as well (see the check below), so this is
+      // belt and braces rather than the only line of defence.
+      const script = buildWindowsScript(
+        agent, baseUrl, agentApiToken, scheduleEnabled, scheduleTime, pollSeconds
       );
+      res.send(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(script, "utf8")]));
       return;
     }
 

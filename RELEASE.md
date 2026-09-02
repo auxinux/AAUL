@@ -1,5 +1,5 @@
 ---
-dashboard: 0.12.1
+dashboard: 0.12.2
 agent: 0.9.1
 date: 2026-09-02
 ---
@@ -16,7 +16,7 @@ Ce fichier est la référence de version consultée par chaque installation AAUL
 
 | Composant / Component | Version |
 |-----------------------|---------|
-| Dashboard | `0.12.1` |
+| Dashboard | `0.12.2` |
 | Agent     | `0.9.1` |
 
 ```bash
@@ -24,6 +24,10 @@ cd ~/AAUL && git pull && ./install.sh
 ```
 
 ## Français
+
+### v0.12.2 — 2026-09-02 — Correctif de l'installateur Windows
+
+- Correctif : le script d'installation Windows ne s'exécutait pas (« Le terminateur ' est manquant dans la chaîne »). PowerShell 5.1 lit un .ps1 sans marque d'ordre d'octets comme du Windows-1252 : un seul caractère accentué se transformait en guillemet typographique, que PowerShell prend pour un délimiteur de chaîne. Le script est désormais servi avec une marque UTF-8 et ne contient que de l'ASCII.
 
 ### v0.12.1 — 2026-09-02 — Alignement du menu réduit
 
@@ -175,6 +179,10 @@ cd ~/AAUL && git pull && ./install.sh
 - Tableau de bord temps réel (SSE).
 
 ## English
+
+### v0.12.2 — 2026-09-02 — Windows installer fix
+
+- Fix: the Windows installer script failed to run ("The string is missing the terminator"). PowerShell 5.1 reads a .ps1 without a byte-order mark as Windows-1252, so a single accented character turned into a typographic quote, which PowerShell treats as a string delimiter. The script is now served with a UTF-8 mark and contains ASCII only.
 
 ### v0.12.1 — 2026-09-02 — Collapsed menu alignment
 

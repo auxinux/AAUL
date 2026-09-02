@@ -18,6 +18,22 @@
  */
 export const CHANGELOG = [
   {
+    version: "0.12.2",
+    date: "2026-09-02",
+    title: {
+      fr: "Correctif de l'installateur Windows",
+      en: "Windows installer fix",
+    },
+    changes: {
+      fr: [
+        "Correctif : le script d'installation Windows ne s'exécutait pas (« Le terminateur ' est manquant dans la chaîne »). PowerShell 5.1 lit un .ps1 sans marque d'ordre d'octets comme du Windows-1252 : un seul caractère accentué se transformait en guillemet typographique, que PowerShell prend pour un délimiteur de chaîne. Le script est désormais servi avec une marque UTF-8 et ne contient que de l'ASCII.",
+      ],
+      en: [
+        "Fix: the Windows installer script failed to run (\"The string is missing the terminator\"). PowerShell 5.1 reads a .ps1 without a byte-order mark as Windows-1252, so a single accented character turned into a typographic quote, which PowerShell treats as a string delimiter. The script is now served with a UTF-8 mark and contains ASCII only.",
+      ],
+    },
+  },
+  {
     version: "0.12.1",
     date: "2026-09-02",
     title: {
