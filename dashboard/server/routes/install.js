@@ -574,10 +574,15 @@ Installez Python puis relancez cette commande :
     }
 
     Write-Host 'Python 3 absent - installation via winget...'
-    & $winget.Source install --id Python.Python.3.12 --source winget --scope machine \`
-        --silent --accept-package-agreements --accept-source-agreements
+    # The output MUST be captured. A PowerShell function returns everything
+    # written to the output stream, not just what it returns explicitly, so an
+    # uncaptured winget call leaks its whole report into the caller's value --
+    # Get-PythonCommand then handed back winget's text instead of a path.
+    $wingetOutput = & $winget.Source install --id Python.Python.3.12 --source winget \`
+        --scope machine --silent --accept-package-agreements --accept-source-agreements 2>&1
     if ($LASTEXITCODE -ne 0) {
         Write-Host "winget a retourne le code $LASTEXITCODE - verification malgre tout..."
+        Write-Host ($wingetOutput | Out-String)
     }
 
     # Pick up PATH changes made by the installer without reopening a shell.
@@ -586,11 +591,23 @@ Installez Python puis relancez cette commande :
     $env:Path = @($machinePath, $userPath) -ne $null -join ';'
 }
 
+# Guarantees the caller gets one usable path. Without this, a stray value would
+# only surface later as "the term ... is not recognized" pointing at a line that
+# is not where the problem is.
+function Assert-PythonPath($Candidate) {
+    $value = @($Candidate) | Where-Object { $_ } | Select-Object -Last 1
+    $value = "$value".Trim()
+    if (-not $value -or -not (Test-Path -LiteralPath $value -PathType Leaf)) {
+        throw "Chemin de l'interpreteur Python invalide : '$value'"
+    }
+    return $value
+}
+
 function Get-PythonCommand {
     $python = Find-Python
-    if ($python) { return $python }
+    if ($python) { return (Assert-PythonPath $python) }
 
-    Install-Python
+    Install-Python | Out-Null
     $python = Find-Python
     if (-not $python) {
         throw @'
@@ -601,7 +618,7 @@ d'installation. Si le probleme persiste, installez Python manuellement :
   https://www.python.org/downloads/windows/
 '@
     }
-    return $python
+    return (Assert-PythonPath $python)
 }
 
 function Get-HmacSha256Hex([string]$Value, [string]$Secret) {

@@ -77,6 +77,46 @@ lines.forEach((line, index) => {
   }
 });
 
+// 4. An external call inside a function must not leak into its return value.
+//    PowerShell functions return EVERYTHING written to the output stream, so an
+//    uncaptured `& something` makes the function hand back that program's text
+//    alongside -- or instead of -- the intended value. This shipped once
+//    already: Get-PythonCommand returned winget's install report, not a path.
+let insideFunction = false;
+let depth = 0;
+lines.forEach((line, index) => {
+  const trimmed = line.trim();
+  if (/^function\s+[A-Za-z-]+/.test(trimmed)) {
+    insideFunction = true;
+    depth = 0;
+  }
+  if (insideFunction) {
+    depth += (line.match(/\{/g) || []).length;
+    depth -= (line.match(/\}/g) || []).length;
+  }
+
+  if (insideFunction && /^&\s*[$"']/.test(trimmed)) {
+    const captured =
+      /\|\s*Out-Null/.test(line) ||
+      /\|\s*Out-String/.test(line) ||
+      /^\$\w+\s*=/.test(trimmed);
+    if (!captured) {
+      console.error(
+        `install.js (PowerShell, line ${index + 1}): uncaptured external call inside a function`
+      );
+      console.error(`  ${trimmed.slice(0, 100)}`);
+      console.error(
+        "  assign it to a variable or pipe it to Out-Null, or it leaks into the return value"
+      );
+      problems += 1;
+    }
+  }
+
+  if (insideFunction && depth <= 0 && /\}/.test(line)) {
+    insideFunction = false;
+  }
+});
+
 if (problems > 0) {
   console.error(`\n${problems} problem(s) in the generated Windows installer.`);
   process.exit(1);

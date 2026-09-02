@@ -18,6 +18,22 @@
  */
 export const CHANGELOG = [
   {
+    version: "0.12.3",
+    date: "2026-09-02",
+    title: {
+      fr: "Installateur Windows : chemin de Python",
+      en: "Windows installer: Python path",
+    },
+    changes: {
+      fr: [
+        "Correctif : après l'installation automatique de Python, l'installateur Windows utilisait le rapport de winget comme chemin d'interpréteur et échouait sur « n'est pas reconnu comme nom d'applet de commande ». La sortie de winget est désormais capturée, et le chemin retourné est validé avant usage.",
+      ],
+      en: [
+        "Fix: after installing Python automatically, the Windows installer used winget's report as the interpreter path and failed with \"is not recognized as the name of a cmdlet\". winget's output is now captured, and the returned path is validated before use.",
+      ],
+    },
+  },
+  {
     version: "0.12.2",
     date: "2026-09-02",
     title: {

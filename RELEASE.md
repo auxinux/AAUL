@@ -1,5 +1,5 @@
 ---
-dashboard: 0.12.2
+dashboard: 0.12.3
 agent: 0.9.1
 date: 2026-09-02
 ---
@@ -16,7 +16,7 @@ Ce fichier est la référence de version consultée par chaque installation AAUL
 
 | Composant / Component | Version |
 |-----------------------|---------|
-| Dashboard | `0.12.2` |
+| Dashboard | `0.12.3` |
 | Agent     | `0.9.1` |
 
 ```bash
@@ -24,6 +24,10 @@ cd ~/AAUL && git pull && ./install.sh
 ```
 
 ## Français
+
+### v0.12.3 — 2026-09-02 — Installateur Windows : chemin de Python
+
+- Correctif : après l'installation automatique de Python, l'installateur Windows utilisait le rapport de winget comme chemin d'interpréteur et échouait sur « n'est pas reconnu comme nom d'applet de commande ». La sortie de winget est désormais capturée, et le chemin retourné est validé avant usage.
 
 ### v0.12.2 — 2026-09-02 — Correctif de l'installateur Windows
 
@@ -179,6 +183,10 @@ cd ~/AAUL && git pull && ./install.sh
 - Tableau de bord temps réel (SSE).
 
 ## English
+
+### v0.12.3 — 2026-09-02 — Windows installer: Python path
+
+- Fix: after installing Python automatically, the Windows installer used winget's report as the interpreter path and failed with "is not recognized as the name of a cmdlet". winget's output is now captured, and the returned path is validated before use.
 
 ### v0.12.2 — 2026-09-02 — Windows installer fix
 
