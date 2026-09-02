@@ -178,6 +178,10 @@ fi
   die "Bundle agent absent : dashboard/public/agent/latest.tar.gz"
 [ -f "$ROOT_DIR/dashboard/public/agent/VERSION" ] || \
   die "Version du bundle agent absente."
+# L'agent Windows est un binaire Go compilé ici même : sans lui, l'installateur
+# Windows n'a rien à télécharger et toute installation échoue au premier appel.
+[ -f "$ROOT_DIR/dashboard/public/agent/windows/aaul-agent.exe" ] || \
+  die "Agent Windows absent : dashboard/public/agent/windows/aaul-agent.exe (toolchain Go requise)."
 
 BUNDLED_AGENT_VER="$(tr -d '[:space:]' < "$ROOT_DIR/dashboard/public/agent/VERSION")"
 [ "$BUNDLED_AGENT_VER" = "$AGENT_VER" ] || \

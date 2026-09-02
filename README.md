@@ -40,10 +40,11 @@ The agent can:
 
 ```text
 agent/
-  app/                    Python agent runtime
+  app/                    Python agent runtime (Linux, macOS)
   app/lib/metrics.py      Vital signs collected on every check-in
   app/lib/logs.py         Log listing, reading and retention
   systemd/                Linux service templates
+  windows/                Go agent for Windows — one static binary, no runtime
 
 dashboard/
   client/                 React + Vite frontend
@@ -80,29 +81,72 @@ Agent package updates are implemented for:
 - macOS through `softwareupdate`, plus Homebrew when present
 - Windows 11 through `winget` and Windows Update APIs
 
-### Windows prerequisites
+### Windows agent
 
-The generated PowerShell installer takes care of these itself:
+The Windows agent is a separate program: a single static Go binary that lives in
+`agent/windows/`. Linux and macOS keep the Python agent.
 
-- **Administrator rights** — required to write to `C:\ProgramData` and to
-  register the SYSTEM scheduled task. The script stops with a clear message if
-  it is not elevated, instead of failing halfway through.
-- **Python 3.9+** — installed automatically with
-  `winget install Python.Python.3.12` when missing. Note that on a clean
-  Windows 11, `python` resolves to a Microsoft Store *alias* that installs
-  nothing; the installer detects that stub and ignores it rather than trusting
-  it. If winget is unavailable, the script tells you to install Python manually.
-- **`tar`** — shipped with Windows 10 1803+ and Windows 11; the script checks
-  for it up front.
+The split exists because the runtime, not the agent, was the problem. Getting a
+usable Python interpreter onto a fresh Windows machine took roughly 260 lines of
+PowerShell — working around the Microsoft Store alias stub under `WindowsApps`,
+installing Python through winget, locating it again outside the session `PATH`,
+creating a virtualenv, verifying pip really existed — and it kept breaking. A Go
+binary has nothing to bootstrap, so the installer is down to ~130 lines that
+place a file and register a service.
+
+What that changes on a managed machine:
+
+- **Prerequisites**: administrator rights, and nothing else. No Python, no
+  virtualenv, no pip, no `tar`.
+- **Service**: a real Windows service (`AgentAutoUpdate`), visible in
+  `services.msc`, started at boot and restarted by the SCM on failure — instead
+  of a SYSTEM scheduled task.
+- **Daily updates**: run by the service itself, and caught up if the machine was
+  off when the window passed. There is no second scheduled task to drift out of
+  sync with `config.json`.
+- **CLI**: the service binary *is* the CLI (`aaul-agent status`), added to the
+  machine `PATH` at install. No wrapper `.cmd`.
+- **Upgrading from the Python agent**: the installer removes the old scheduled
+  tasks and virtualenv, and keeps `config.json` and `logs\`. The machine stays
+  the same agent on the dashboard, with its history.
+
+`winget` is optional. It is resolved from the App Installer package under
+`C:\Program Files\WindowsApps` as well as from `PATH`, because the `winget`
+alias on `PATH` belongs to a user profile and does not exist for the LocalSystem
+account the service runs under.
+
+#### Building the Windows agent
+
+It is cross-compiled from the development machine — no Windows build host and no
+CI runner are involved:
+
+```bash
+cd dashboard && bash scripts/build-agent-bundle.sh
+```
+
+That produces both `public/agent/latest.tar.gz` (Python agent) and
+`public/agent/windows/aaul-agent.exe` (Go agent), stamped with the version from
+`agent/app/VERSION`. It needs the Go toolchain; set `AAUL_SKIP_WINDOWS_AGENT=1`
+to skip it while working on the Python agent alone. `release.sh` refuses to
+publish without the binary.
+
+Tests for the Go agent:
+
+```bash
+cd agent/windows
+go test ./...                                   # signing, config, logs, winget parsing
+GOOS=windows go vet ./... && GOOS=windows go build ./...
+```
 
 #### Testing the Windows installer
 
 The PowerShell installer is generated, so it is checked rather than trusted.
-`npm run check:install` always enforces the static rules (pure ASCII, no
-uncaptured external call inside a function, well-formed here-strings), and
-additionally — **when `pwsh` is present** — parses the generated script with
-PowerShell's own parser and runs `scripts/test-windows-installer.ps1` against
-the prerequisite functions with a stubbed `winget`.
+`npm run check:install` always enforces the static rules (pure ASCII, values
+interpolated through `psAsciiQuote`, no uncaptured external call inside a
+function, well-formed here-strings), and additionally — **when `pwsh` is
+present** — parses the generated script with PowerShell's own parser and runs
+`scripts/test-windows-installer.ps1`, which checks that the installer's
+integrity check agrees byte for byte with the dashboard's.
 
 PowerShell is not required to install or run AAUL; the extra checks are simply
 skipped when it is missing. To enable them on a development machine:
@@ -120,7 +164,7 @@ Service management is implemented through:
 
 - `systemd` on Linux
 - `launchd` on macOS
-- Task Scheduler on Windows
+- the Service Control Manager on Windows
 
 ## Development
 
@@ -187,7 +231,12 @@ Once an agent is installed on a machine it is managed locally by a background se
 
 ### Agent CLI commands
 
-The agent CLI is available as `agentautoupdate` (or `agentautoupdate.exe` on Windows). On Linux and macOS it is installed under `/usr/local/bin/agentautoupdate`.
+On Linux and macOS the CLI is `agentautoupdate`, installed under
+`/usr/local/bin/agentautoupdate`. On Windows it is `aaul-agent`, the agent
+binary itself, installed under `C:\ProgramData\AgentAutoUpdate\bin` and added
+to the machine `PATH`. The subcommands below are the same on both, except where
+noted; run `aaul-agent help` for the Windows-specific ones
+(`install-service`, `run --console`).
 
 ```bash
 # Show installed version and local config
@@ -225,7 +274,7 @@ The background poller is what keeps the agent talking to the dashboard.
 |----------|----------------|-----------------|
 | Linux (systemd) | `agentautoupdate.service` | `sudo systemctl status agentautoupdate.service`, `sudo systemctl restart agentautoupdate.service` |
 | macOS (launchd) | `com.agentautoupdate.poller` | `sudo launchctl print system/com.agentautoupdate.poller`, `sudo launchctl kickstart -k system/com.agentautoupdate.poller` |
-| Windows | Task Scheduler `AgentAutoUpdate Poller` | `schtasks /Query /TN "AgentAutoUpdate Poller"`, `schtasks /Run /TN "AgentAutoUpdate Poller"` |
+| Windows (SCM) | service `AgentAutoUpdate` | `Get-Service AgentAutoUpdate`, `Restart-Service AgentAutoUpdate` |
 
 ### When an agent stops talking to the dashboard
 
@@ -234,7 +283,7 @@ The dashboard shows an agent as offline when it has not received a poll for more
 1. **Check the agent service on the machine**
    - Linux: `sudo systemctl status agentautoupdate.service --no-pager`
    - macOS: `sudo launchctl print system/com.agentautoupdate.poller`
-   - Windows: `schtasks /Query /TN "AgentAutoUpdate Poller" /FO LIST`
+   - Windows: `Get-Service AgentAutoUpdate`, or `aaul-agent status`
 
    If the service is stopped, start or restart it. A freshly installed agent that has never connected will usually show an error here first.
 

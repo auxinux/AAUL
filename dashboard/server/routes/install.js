@@ -29,6 +29,31 @@ function psQuote(value) {
   return `'${String(value ?? "").replace(/'/g, "''")}'`;
 }
 
+// Quote a value for the Windows installer, keeping the generated script pure
+// ASCII even when the value is not.
+//
+// The script is served with a UTF-8 BOM, but a BOM is only as reliable as
+// whatever last handled the file: a proxy, an editor or a copy-paste can drop
+// it, and Windows PowerShell 5.1 then reads the file as Windows-1252. A
+// mis-decoded byte landing on 0x92 becomes a typographic quote, which
+// PowerShell accepts as a string delimiter — so one accented character in an
+// agent's display name is enough to open a string that never closes and make
+// the whole file unparseable. That failure shipped twice already.
+//
+// The template itself is checked for ASCII by scripts/check-install-scripts.mjs,
+// but that check cannot see interpolated values. This closes the gap: ASCII
+// values are emitted as plain quoted strings so the script stays readable, and
+// anything else travels as base64 decoded at runtime.
+function psAsciiQuote(value) {
+  const text = String(value ?? "");
+  // Printable ASCII only: a control character would break the quoting anyway.
+  if (/^[\x20-\x7E]*$/.test(text)) {
+    return psQuote(text);
+  }
+  const encoded = Buffer.from(text, "utf8").toString("base64");
+  return `([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encoded}')))`;
+}
+
 // Keep schedule values predictable because they are embedded in generated scripts.
 function sanitizeScheduleTime(value) {
   const raw = String(value || "");
@@ -464,161 +489,41 @@ echo "Status: sudo launchctl print system/com.agentautoupdate.poller"
 }
 
 // Windows installer script generated as PowerShell.
+//
+// The Windows agent is a single static Go binary (agent/windows), so this
+// script only has to place a file and register a service. The version this
+// replaced spent ~260 lines making a Python interpreter appear on a fresh
+// machine — working around the Microsoft Store alias stub under WindowsApps,
+// installing Python through winget, finding it again outside the session PATH,
+// creating a virtualenv, checking pip really existed, and depending on tar.
+// None of that has an equivalent here, which is the entire point of the port.
 function buildWindowsScript(agent, baseUrl, agentApiToken, scheduleEnabled, scheduleTime, pollSeconds) {
   return `# Agent Auto Update - Windows Installer
 $ErrorActionPreference = 'Stop'
 
-$DASHBOARD_URL = ${psQuote(baseUrl)}
-$AGENT_ID = ${psQuote(agent.id)}
-$DISPLAY_NAME = ${psQuote(agent.display_name)}
-$API_TOKEN = ${psQuote(agentApiToken)}
+$DASHBOARD_URL = ${psAsciiQuote(baseUrl)}
+$AGENT_ID = ${psAsciiQuote(agent.id)}
+$DISPLAY_NAME = ${psAsciiQuote(agent.display_name)}
+$API_TOKEN = ${psAsciiQuote(agentApiToken)}
 $POLL_SECONDS = ${pollSeconds}
 $SCHEDULE_ENABLED = ${scheduleEnabled}
-$SCHEDULE_TIME = ${psQuote(scheduleTime)}
+$SCHEDULE_TIME = ${psAsciiQuote(scheduleTime)}
 
 $INSTALL_DIR = 'C:\\ProgramData\\AgentAutoUpdate'
-$APP_DIR = Join-Path $INSTALL_DIR 'app'
+$BIN_DIR = Join-Path $INSTALL_DIR 'bin'
 $LOG_DIR = Join-Path $INSTALL_DIR 'logs'
-$VENV_DIR = Join-Path $INSTALL_DIR 'venv'
-$CLI_PATH = Join-Path $INSTALL_DIR 'agentautoupdate.cmd'
-$TMP_BUNDLE = Join-Path $env:TEMP 'agentautoupdate-latest.tar.gz'
-$POLLER_TASK = 'AgentAutoUpdate Poller'
-$RUNNER_TASK = 'AgentAutoUpdate Runner'
+$AGENT_EXE = Join-Path $BIN_DIR 'aaul-agent.exe'
+$TMP_EXE = Join-Path $env:TEMP 'aaul-agent-download.exe'
+$SERVICE_NAME = 'AgentAutoUpdate'
 
-# --- Prerequisites -------------------------------------------------------
-#
-# On a fresh Windows 11, "Get-Command python" SUCCEEDS even with no Python
-# installed: it resolves the Microsoft Store alias stub under WindowsApps,
-# which prints "Python was not found..." and exits without doing anything.
-# The old check therefore never fired, "python -m venv" silently did nothing,
-# and the install died later on a confusing "pip.exe is not recognized".
-# So we validate that the interpreter actually RUNS, and install it if not.
-
-$MIN_PYTHON_MAJOR = 3
-$MIN_PYTHON_MINOR = 9
+# Names used by the previous, Python-based agent. They are removed on upgrade.
+$LEGACY_POLLER_TASK = 'AgentAutoUpdate Poller'
+$LEGACY_RUNNER_TASK = 'AgentAutoUpdate Runner'
 
 function Test-IsElevated {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = New-Object Security.Principal.WindowsPrincipal($identity)
     return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-}
-
-# True only if the path is a real interpreter of a high enough version.
-function Test-PythonCandidate([string]$Path) {
-    if (-not $Path) { return $false }
-    # The Store alias lives under WindowsApps and is not a real interpreter.
-    if ($Path -like '*\\WindowsApps\\*') { return $false }
-    $version = $null
-    try {
-        $version = & $Path -c "import sys; print('%d.%d' % sys.version_info[:2])" 2>$null
-    } catch {
-        return $false
-    }
-    if ($LASTEXITCODE -ne 0 -or -not $version) { return $false }
-    $parts = "$version".Trim().Split('.')
-    if ($parts.Count -lt 2) { return $false }
-    $major = 0; $minor = 0
-    if (-not [int]::TryParse($parts[0], [ref]$major)) { return $false }
-    if (-not [int]::TryParse($parts[1], [ref]$minor)) { return $false }
-    if ($major -lt $MIN_PYTHON_MAJOR) { return $false }
-    if ($major -eq $MIN_PYTHON_MAJOR -and $minor -lt $MIN_PYTHON_MINOR) { return $false }
-    return $true
-}
-
-function Find-Python {
-    # The py launcher is the most reliable entry point when several versions
-    # coexist, and it is never shadowed by the Store alias.
-    $launcher = Get-Command py -ErrorAction SilentlyContinue
-    if ($launcher) {
-        try {
-            $resolved = & $launcher.Source -3 -c "import sys; print(sys.executable)" 2>$null
-            if ($LASTEXITCODE -eq 0 -and $resolved -and (Test-PythonCandidate $resolved.Trim())) {
-                return $resolved.Trim()
-            }
-        } catch { }
-    }
-
-    foreach ($name in @('python', 'python3')) {
-        foreach ($cmd in @(Get-Command $name -All -ErrorAction SilentlyContinue)) {
-            if (Test-PythonCandidate $cmd.Source) { return $cmd.Source }
-        }
-    }
-
-    # winget installs outside the current session's PATH, so look where it puts
-    # things rather than requiring the user to open a new shell.
-    $roots = @(
-        (Join-Path $env:ProgramFiles 'Python*'),
-        (Join-Path \${env:ProgramFiles(x86)} 'Python*'),
-        (Join-Path $env:LOCALAPPDATA 'Programs\\Python\\Python*')
-    )
-    foreach ($root in $roots) {
-        if (-not $root) { continue }
-        foreach ($dir in @(Get-Item $root -ErrorAction SilentlyContinue | Sort-Object Name -Descending)) {
-            $candidate = Join-Path $dir.FullName 'python.exe'
-            if ((Test-Path $candidate) -and (Test-PythonCandidate $candidate)) { return $candidate }
-        }
-    }
-    return $null
-}
-
-function Install-Python {
-    $winget = Get-Command winget -ErrorAction SilentlyContinue
-    if (-not $winget) {
-        throw @'
-Python 3 est absent et winget n'est pas disponible pour l'installer.
-
-Installez Python puis relancez cette commande :
-  https://www.python.org/downloads/windows/
-  (cochez "Add python.exe to PATH" pendant l'installation)
-'@
-    }
-
-    Write-Host 'Python 3 absent - installation via winget...'
-    # The output MUST be captured. A PowerShell function returns everything
-    # written to the output stream, not just what it returns explicitly, so an
-    # uncaptured winget call leaks its whole report into the caller's value --
-    # Get-PythonCommand then handed back winget's text instead of a path.
-    $wingetOutput = & $winget.Source install --id Python.Python.3.12 --source winget \`
-        --scope machine --silent --accept-package-agreements --accept-source-agreements 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "winget a retourne le code $LASTEXITCODE - verification malgre tout..."
-        Write-Host ($wingetOutput | Out-String)
-    }
-
-    # Pick up PATH changes made by the installer without reopening a shell.
-    $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
-    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-    $env:Path = @($machinePath, $userPath) -ne $null -join ';'
-}
-
-# Guarantees the caller gets one usable path. Without this, a stray value would
-# only surface later as "the term ... is not recognized" pointing at a line that
-# is not where the problem is.
-function Assert-PythonPath($Candidate) {
-    $value = @($Candidate) | Where-Object { $_ } | Select-Object -Last 1
-    $value = "$value".Trim()
-    if (-not $value -or -not (Test-Path -LiteralPath $value -PathType Leaf)) {
-        throw "Chemin de l'interpreteur Python invalide : '$value'"
-    }
-    return $value
-}
-
-function Get-PythonCommand {
-    $python = Find-Python
-    if ($python) { return (Assert-PythonPath $python) }
-
-    Install-Python | Out-Null
-    $python = Find-Python
-    if (-not $python) {
-        throw @'
-Python 3 reste introuvable apres l'installation.
-
-Ouvrez une NOUVELLE fenetre PowerShell (administrateur) et relancez la commande
-d'installation. Si le probleme persiste, installez Python manuellement :
-  https://www.python.org/downloads/windows/
-'@
-    }
-    return (Assert-PythonPath $python)
 }
 
 function Get-HmacSha256Hex([string]$Value, [string]$Secret) {
@@ -631,8 +536,8 @@ function Get-HmacSha256Hex([string]$Value, [string]$Secret) {
     }
 }
 
-# Writing to C:\\ProgramData and registering a SYSTEM scheduled task both need
-# elevation. Saying so up front beats failing halfway through.
+# Writing to C:\\ProgramData and registering a service both need elevation.
+# Saying so up front beats failing halfway through.
 if (-not (Test-IsElevated)) {
     throw @'
 Cette installation doit etre lancee en tant qu'administrateur.
@@ -642,29 +547,41 @@ commande d'installation.
 '@
 }
 
-if (-not (Get-Command tar -ErrorAction SilentlyContinue)) {
-    throw "La commande 'tar' est introuvable. Elle est fournie avec Windows 10 1803+ et Windows 11."
+# --- Remove a previous installation --------------------------------------
+#
+# config.json and logs are deliberately kept: the machine must stay the same
+# agent on the dashboard, with its history, across the upgrade.
+
+if (Get-Service -Name $SERVICE_NAME -ErrorAction SilentlyContinue) {
+    Write-Host 'Arret du service existant...'
+    Stop-Service -Name $SERVICE_NAME -Force -ErrorAction SilentlyContinue
 }
 
-New-Item -ItemType Directory -Force -Path $INSTALL_DIR,$LOG_DIR | Out-Null
-$python = Get-PythonCommand
-Write-Host "Python utilise : $python"
-
-& $python -m venv $VENV_DIR
-$PIP = Join-Path $VENV_DIR 'Scripts\\pip.exe'
-$VENV_PYTHON = Join-Path $VENV_DIR 'Scripts\\python.exe'
-# Never assume the venv was created: a Store alias or a broken install leaves an
-# empty directory behind, and the next command would fail with an unhelpful
-# "pip.exe is not recognized".
-if (-not (Test-Path $PIP) -or -not (Test-Path $VENV_PYTHON)) {
-    throw "Echec de creation de l'environnement Python dans $VENV_DIR (pip introuvable). Interpreteur utilise : $python"
+foreach ($legacyTask in @($LEGACY_POLLER_TASK, $LEGACY_RUNNER_TASK)) {
+    if (Get-ScheduledTask -TaskName $legacyTask -ErrorAction SilentlyContinue) {
+        Write-Host "Suppression de l'ancienne tache planifiee : $legacyTask"
+        Unregister-ScheduledTask -TaskName $legacyTask -Confirm:$false -ErrorAction SilentlyContinue
+    }
 }
 
-& $PIP install --upgrade pip --quiet
+# Leftovers from the Python agent. Removing them reclaims a few hundred
+# megabytes of virtualenv that nothing will ever run again.
+foreach ($legacyDir in @((Join-Path $INSTALL_DIR 'venv'), (Join-Path $INSTALL_DIR 'app'))) {
+    if (Test-Path $legacyDir) {
+        Remove-Item $legacyDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+$legacyCli = Join-Path $INSTALL_DIR 'agentautoupdate.cmd'
+if (Test-Path $legacyCli) { Remove-Item $legacyCli -Force -ErrorAction SilentlyContinue }
 
-$response = Invoke-WebRequest -Uri "$DASHBOARD_URL/agent/latest.tar.gz" \`
+# --- Download and verify the agent ---------------------------------------
+
+New-Item -ItemType Directory -Force -Path $INSTALL_DIR,$BIN_DIR,$LOG_DIR | Out-Null
+
+Write-Host 'Telechargement de l''agent...'
+$response = Invoke-WebRequest -Uri "$DASHBOARD_URL/agent/windows/latest.exe" \`
     -Headers @{ Authorization = "Bearer $API_TOKEN" } \`
-    -OutFile $TMP_BUNDLE -UseBasicParsing -PassThru
+    -OutFile $TMP_EXE -UseBasicParsing -PassThru
 
 $expectedSha = ($response.Headers['X-Bundle-Sha256'] | Select-Object -First 1).ToString().ToLowerInvariant()
 $expectedSig = ($response.Headers['X-Bundle-Signature'] | Select-Object -First 1).ToString().ToLowerInvariant()
@@ -672,22 +589,21 @@ if (-not $expectedSha -or -not $expectedSig) {
     throw 'Missing bundle integrity headers.'
 }
 
-$actualSha = (Get-FileHash -Path $TMP_BUNDLE -Algorithm SHA256).Hash.ToLowerInvariant()
+$actualSha = (Get-FileHash -Path $TMP_EXE -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($actualSha -ne $expectedSha) {
     throw 'Bundle checksum mismatch.'
 }
 
+# The dashboard signs the hash with this agent's own API token, so a payload
+# served by anything else is refused before it is ever executed.
 $actualSig = Get-HmacSha256Hex -Value $expectedSha -Secret $API_TOKEN
 if ($actualSig -ne $expectedSig) {
     throw 'Bundle signature mismatch.'
 }
 
-if (Test-Path $APP_DIR) {
-    Remove-Item $APP_DIR -Recurse -Force
-}
-New-Item -ItemType Directory -Force -Path $APP_DIR | Out-Null
-tar -xzf $TMP_BUNDLE -C $APP_DIR
-& $PIP install -r "$APP_DIR\\requirements.txt" --quiet
+Move-Item -Path $TMP_EXE -Destination $AGENT_EXE -Force
+
+# --- Configure and register ----------------------------------------------
 
 @{
     agentId = $AGENT_ID
@@ -698,32 +614,23 @@ tar -xzf $TMP_BUNDLE -C $APP_DIR
     schedule = @{ enabled = ([bool]($SCHEDULE_ENABLED -eq 1)); dailyTime = $SCHEDULE_TIME }
 } | ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $INSTALL_DIR 'config.json') -Encoding UTF8
 
-@"
-@echo off
-"$VENV_DIR\\Scripts\\python.exe" "$APP_DIR\\agent_cli.py" %*
-"@ | Set-Content -Path $CLI_PATH -Encoding Ascii
+# The binary registers itself: start type, LocalSystem account, restart-on-
+# failure and the PATH entry all live in the agent, next to the code that
+# depends on them.
+& $AGENT_EXE install-service
+if ($LASTEXITCODE -ne 0) { throw "Echec de l'enregistrement du service (code $LASTEXITCODE)." }
 
-$pollerAction = New-ScheduledTaskAction -Execute "$VENV_DIR\\Scripts\\python.exe" -Argument "$APP_DIR\\agent_poller.py"
-$pollerTrigger = New-ScheduledTaskTrigger -AtStartup
-$taskSettings = New-ScheduledTaskSettingsSet -RestartCount 10 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
-$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
-Register-ScheduledTask -TaskName $POLLER_TASK -Action $pollerAction -Trigger $pollerTrigger -Settings $taskSettings -Principal $principal -Force | Out-Null
+& $AGENT_EXE start
+if ($LASTEXITCODE -ne 0) { throw "Echec du demarrage du service (code $LASTEXITCODE)." }
 
-if ($SCHEDULE_ENABLED -eq 1) {
-    $runnerAction = New-ScheduledTaskAction -Execute "$VENV_DIR\\Scripts\\python.exe" -Argument "$APP_DIR\\agent_runner.py --run-once"
-    $runnerTrigger = New-ScheduledTaskTrigger -Daily -At $SCHEDULE_TIME
-    Register-ScheduledTask -TaskName $RUNNER_TASK -Action $runnerAction -Trigger $runnerTrigger -Settings $taskSettings -Principal $principal -Force | Out-Null
-} else {
-    Unregister-ScheduledTask -TaskName $RUNNER_TASK -Confirm:$false -ErrorAction SilentlyContinue
-}
-
-Start-ScheduledTask -TaskName $POLLER_TASK
-& "$VENV_DIR\\Scripts\\python.exe" "$APP_DIR\\agent_poller.py" --once
-Remove-Item $TMP_BUNDLE -Force -ErrorAction SilentlyContinue
+# First heartbeat, so the agent shows up in the dashboard immediately instead
+# of at the end of the first poll interval.
+& $AGENT_EXE check-in
 
 Write-Host 'Agent installed for Windows.'
-Write-Host "CLI:    $CLI_PATH"
-Write-Host "Status: Get-ScheduledTask -TaskName '$POLLER_TASK'"
+Write-Host "Binary:  $AGENT_EXE"
+Write-Host "CLI:     aaul-agent status   (new shell required for PATH)"
+Write-Host "Status:  Get-Service -Name $SERVICE_NAME"
 `;
 }
 

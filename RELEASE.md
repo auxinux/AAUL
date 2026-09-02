@@ -1,6 +1,6 @@
 ---
-dashboard: 0.12.4
-agent: 0.9.1
+dashboard: 0.13.0
+agent: 0.10.0
 date: 2026-09-02
 ---
 
@@ -16,14 +16,27 @@ Ce fichier est la référence de version consultée par chaque installation AAUL
 
 | Composant / Component | Version |
 |-----------------------|---------|
-| Dashboard | `0.12.4` |
-| Agent     | `0.9.1` |
+| Dashboard | `0.13.0` |
+| Agent     | `0.10.0` |
 
 ```bash
 cd ~/AAUL && git pull && ./install.sh
 ```
 
 ## Français
+
+### v0.13.0 — 2026-09-02 — Agent Windows réécrit en Go
+
+- L'agent Windows est désormais un exécutable autonome unique. Il n'y a plus rien à installer au préalable : ni Python, ni environnement virtuel, ni pip, ni tar. C'était la cause de la quasi-totalité des échecs d'installation sur Windows.
+- L'agent tourne comme un vrai service Windows (« AgentAutoUpdate »), visible dans services.msc, démarré au démarrage de la machine et relancé automatiquement par Windows en cas d'arrêt anormal — au lieu d'une tâche planifiée.
+- La mise à jour quotidienne est gérée par le service lui-même et rattrapée si la machine était éteinte au moment prévu. Il n'y a plus de seconde tâche planifiée susceptible de se désynchroniser de la configuration.
+- Mise à niveau depuis l'ancien agent : lancez simplement la nouvelle commande d'installation. Les anciennes tâches planifiées et l'environnement Python sont supprimés, la configuration et l'historique des logs sont conservés, et la machine reste le même agent dans le tableau de bord.
+- Les mesures (processeur, mémoire, disque) et l'inventaire sont lus directement auprès de Windows. L'ancien agent lançait PowerShell à chaque relève, soit environ 5 700 démarrages d'interpréteur par jour sur chaque machine.
+- L'inventaire Windows est plus précis : version exacte de Windows, redémarrage en attente détecté dans les trois emplacements où Windows l'enregistre, et tous les disques fixes suivis au lieu du seul lecteur C:.
+- La liste et la recherche de paquets renvoient enfin des identifiants winget exploitables : installer un paquet trouvé par la recherche fonctionne désormais sur Windows.
+- La commande « aaul-agent run --console » exécute l'agent au premier plan avec son journal à l'écran, pour diagnostiquer une machine sans passer par le service.
+- Correctif : winget est introuvable pour le compte système sous lequel tourne le service ; il est maintenant localisé dans le dossier d'App Installer en plus du PATH.
+- Correctif : un nom d'affichage accentué réintroduisait des caractères non-ASCII dans le script d'installation Windows. Ces valeurs sont désormais encodées, et le script reste lisible par PowerShell 5.1 même si la marque d'ordre d'octets est perdue.
 
 ### v0.12.4 — 2026-09-02 — Tests réels de l'installateur Windows
 
@@ -187,6 +200,19 @@ cd ~/AAUL && git pull && ./install.sh
 - Tableau de bord temps réel (SSE).
 
 ## English
+
+### v0.13.0 — 2026-09-02 — Windows agent rewritten in Go
+
+- The Windows agent is now a single self-contained executable. There is nothing to install first: no Python, no virtual environment, no pip, no tar. That bootstrap was the cause of nearly every failed Windows installation.
+- The agent runs as a real Windows service ("AgentAutoUpdate"), visible in services.msc, started at boot and automatically restarted by Windows if it ever stops unexpectedly — instead of a scheduled task.
+- The daily update is handled by the service itself, and caught up if the machine was off when the window passed. There is no second scheduled task that can drift out of sync with the configuration.
+- Upgrading from the previous agent: just run the new install command. The old scheduled tasks and Python environment are removed, the configuration and log history are kept, and the machine stays the same agent in the dashboard.
+- Metrics (CPU, memory, disk) and inventory are read directly from Windows. The previous agent launched PowerShell on every check-in, roughly 5,700 interpreter starts per day on each machine.
+- Windows inventory is more accurate: exact Windows version, pending reboot detected in all three places Windows records it, and every fixed disk tracked instead of only the C: drive.
+- Package listing and search finally return usable winget identifiers, so installing a package found through search now works on Windows.
+- The new "aaul-agent run --console" command runs the agent in the foreground with its log on screen, to diagnose a machine without going through the service.
+- Fix: winget was not resolvable from the system account the service runs under; it is now located in the App Installer folder as well as on PATH.
+- Fix: an accented display name put non-ASCII characters back into the Windows install script. Those values are now encoded, so the script stays readable by PowerShell 5.1 even if the byte-order mark is lost.
 
 ### v0.12.4 — 2026-09-02 — Real tests for the Windows installer
 

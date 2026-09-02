@@ -20,11 +20,16 @@ dashboard/client/.env
 dashboard/client/dist/
 dashboard/public/agent/*.tar.gz
 dashboard/public/agent/VERSION
+dashboard/public/agent/windows/
 release/
 
 # Logs
 *.log
 npm-debug.log*
+
+# Python bytecode (the Linux/macOS agent)
+__pycache__/
+*.pyc
 
 # Editor/OS cruft
 .DS_Store

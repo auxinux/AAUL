@@ -17,6 +17,7 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
+import crypto from "crypto";
 import { spawnSync } from "child_process";
 import { fileURLToPath } from "url";
 
@@ -119,6 +120,23 @@ lines.forEach((line, index) => {
   }
 });
 
+// 5. Interpolated values must go through psAsciiQuote.
+//    Rule 1 only sees the template. An agent display name is user-supplied and
+//    is embedded verbatim by psQuote, so a single accented character would put
+//    non-ASCII into the served script and defeat the check above.
+lines.forEach((line, index) => {
+  if (/\$\{\s*psQuote\(/.test(line)) {
+    console.error(
+      `install.js (PowerShell, line ${index + 1}): use psAsciiQuote, not psQuote`
+    );
+    console.error(`  ${line.trim().slice(0, 100)}`);
+    console.error(
+      "  psQuote embeds the value verbatim; a non-ASCII one breaks the pure-ASCII guarantee"
+    );
+    problems += 1;
+  }
+});
+
 if (problems > 0) {
   console.error(`\n${problems} problem(s) in the generated Windows installer.`);
   process.exit(1);
@@ -153,15 +171,29 @@ const defsPath = path.join(tmpDir, "defs.ps1");
 const renderable = template.replace(/\$\{[^}]*\}/g, "'PLACEHOLDER'");
 fs.writeFileSync(scriptPath, renderable, "utf8");
 
-// Only the prerequisite helpers: the rest needs Windows-only cmdlets.
-const defs = renderable
-  .split("\n")
-  .slice(
-    renderable.split("\n").findIndex((line) => line.startsWith("$MIN_PYTHON_MAJOR")),
-    renderable.split("\n").findIndex((line) => line.startsWith("# Writing to C:"))
-  )
-  .join("\n");
-fs.writeFileSync(defsPath, defs, "utf8");
+// Only the standalone helpers: the rest drives Windows-only cmdlets
+// (Get-Service, Unregister-ScheduledTask, Invoke-WebRequest against a real
+// dashboard) that cannot run here.
+const renderedLines = renderable.split("\n");
+const defsStart = renderedLines.findIndex((line) => line.startsWith("function Test-IsElevated"));
+const defsEnd = renderedLines.findIndex((line) => line.startsWith("# Writing to C:"));
+if (defsStart === -1 || defsEnd === -1 || defsEnd <= defsStart) {
+  console.error("check-install-scripts: could not delimit the helper functions");
+  process.exit(1);
+}
+fs.writeFileSync(defsPath, renderedLines.slice(defsStart, defsEnd).join("\n"), "utf8");
+
+// The installer verifies the agent binary with an HMAC it computes itself, and
+// compares it against one the dashboard computed in bundle.js. If those two
+// implementations ever disagree, every Windows install fails at the signature
+// check. Compute the expected value here, with the same Node crypto call the
+// dashboard uses, and make PowerShell reproduce it.
+const hmacValue = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
+const hmacSecret = "agent-api-token-with-'quote-and-accents-cafe";
+const expectedHmac = crypto
+  .createHmac("sha256", hmacSecret)
+  .update(hmacValue)
+  .digest("hex");
 
 const parse = spawnSync(
   pwsh,
@@ -180,7 +212,10 @@ if (parse.status !== 0) {
 const tests = spawnSync(
   pwsh,
   ["-NoProfile", "-File", path.join(dashboardDir, "scripts", "test-windows-installer.ps1"),
-   "-DefinitionsPath", defsPath],
+   "-DefinitionsPath", defsPath,
+   "-HmacValue", hmacValue,
+   "-HmacSecret", hmacSecret,
+   "-ExpectedHmac", expectedHmac],
   { encoding: "utf8" }
 );
 process.stdout.write(tests.stdout || "");

@@ -39,32 +39,47 @@ function signBundleHash(bundleSha256, agentApiToken) {
     .digest("hex");
 }
 
-router.get("/version", (req, res) => {
-  res.json({ version: readVersion() });
-});
-
-router.get("/latest.tar.gz", requireAgentAuth, async (req, res) => {
-  const bundlePath = path.join(publicDir, "latest.tar.gz");
-  if (!fs.existsSync(bundlePath)) {
+// Serve one agent artifact with the integrity metadata the agent verifies
+// before running it: the SHA-256 of the file, plus an HMAC of that hash keyed
+// with the requesting agent's own API token. A proxy that can serve bytes still
+// cannot serve a payload any agent will accept.
+async function sendSignedArtifact(req, res, filePath) {
+  if (!fs.existsSync(filePath)) {
     res.status(404).json({ error: "Bundle not found" });
     return;
   }
   try {
-    const sha256 = await computeFileSha256(bundlePath);
+    const sha256 = await computeFileSha256(filePath);
     const agentToken = req.agentAuthToken || req.agent.agent_api_token;
     if (!agentToken) {
       res.status(500).json({ error: "Agent token unavailable" });
       return;
     }
-    const signature = signBundleHash(sha256, agentToken);
     res.setHeader("X-Bundle-Sha256", sha256);
-    res.setHeader("X-Bundle-Signature", signature);
+    res.setHeader("X-Bundle-Signature", signBundleHash(sha256, agentToken));
     res.setHeader("X-Bundle-Version", readVersion());
   } catch {
     res.status(500).json({ error: "Failed to prepare bundle metadata" });
     return;
   }
-  res.sendFile(bundlePath);
+  res.sendFile(filePath);
+}
+
+router.get("/version", (req, res) => {
+  res.json({ version: readVersion() });
+});
+
+// Python agent bundle (Linux and macOS).
+router.get("/latest.tar.gz", requireAgentAuth, async (req, res) => {
+  await sendSignedArtifact(req, res, path.join(publicDir, "latest.tar.gz"));
+});
+
+// Windows agent: a single static Go binary rather than a source bundle, so
+// there is no interpreter to install and nothing to extract. Self-update
+// downloads it from here (agent/windows/internal/selfupdate).
+router.get("/windows/latest.exe", requireAgentAuth, async (req, res) => {
+  res.setHeader("Content-Type", "application/octet-stream");
+  await sendSignedArtifact(req, res, path.join(publicDir, "windows", "aaul-agent.exe"));
 });
 
 export default router;
