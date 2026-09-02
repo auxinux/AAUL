@@ -385,9 +385,20 @@ when a disk is filling up. The log viewer supports search, level highlighting
 ## Version checking
 
 `RELEASE.md` at the repository root publishes the versions that are currently
-released. It is **generated**, never hand-edited — `release.sh` rebuilds it from
+released **and the release notes in both French and English**. It is
+**generated**, never hand-edited — `release.sh` rebuilds it from
 `dashboard/client/src/lib/changelog.js` and the `VERSION` files, so the published
 reference cannot lag behind a release.
+
+The dashboard reads its release notes from that same file rather than from a
+copy baked into the bundle, and shows the section matching the interface
+language. Three sources are tried, in order:
+
+1. the cached copy of the last successful fetch — this is what lets you read
+   what a **newer** version contains before installing it;
+2. the `RELEASE.md` shipped with the installation, which `git pull` always puts
+   on disk, so an isolated install still has its notes;
+3. nothing, in which case the window says so instead of showing a blank list.
 
 Each dashboard reads that file periodically and compares it with what it runs.
 When a newer version exists, a small amber badge appears next to the version in

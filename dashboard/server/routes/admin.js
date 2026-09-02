@@ -10,7 +10,7 @@ import { getActorUserId, recordAuditEvent } from "../utils/audit.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const configPath = path.join(__dirname, "..", "..", "config", "config.json");
 
-import { getUpdateStatus, runUpdateCheck } from "../utils/update-check.js";
+import { getReleaseNotes, getUpdateStatus, runUpdateCheck } from "../utils/update-check.js";
 
 const router = express.Router();
 
@@ -252,6 +252,14 @@ router.get("/health", requireAdmin, async (req, res) => {
 // render the badge instantly on every page load.
 router.get("/update-check", requireAdmin, (req, res) => {
   res.json({ ok: true, status: getUpdateStatus() });
+});
+
+// Release notes for both languages. Served from the cached copy of the last
+// successful fetch, falling back to the RELEASE.md shipped with this install —
+// so an offline dashboard still shows its notes.
+router.get("/release-notes", requireAdmin, (req, res) => {
+  const { notes, source, version } = getReleaseNotes();
+  res.json({ ok: true, notes, source, version });
 });
 
 // A repeated click must not hammer the repository, so forced checks are

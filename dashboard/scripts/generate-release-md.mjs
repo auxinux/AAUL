@@ -73,37 +73,53 @@ async function build() {
   lines.push("  Regenerer avec :  cd dashboard && npm run gen:release");
   lines.push("-->");
   lines.push("");
-  lines.push("# AAUL — Versions publiées");
+  lines.push("# AAUL — Notes de version / Release notes");
   lines.push("");
   lines.push(
     "Ce fichier est la référence de version consultée par chaque installation " +
-      "AAUL pour savoir si une mise à jour est disponible."
+      "AAUL pour savoir si une mise à jour est disponible. Il est aussi la source " +
+      "des notes affichées dans l'application."
   );
   lines.push("");
-  lines.push("| Composant | Version publiée |");
-  lines.push("|-----------|-----------------|");
+  lines.push("| Composant / Component | Version |");
+  lines.push("|-----------------------|---------|");
   lines.push(`| Dashboard | \`${dashboardVersion}\` |`);
   lines.push(`| Agent     | \`${agentVersion}\` |`);
-  lines.push("");
-  lines.push("Pour mettre à jour une installation existante :");
   lines.push("");
   lines.push("```bash");
   lines.push("cd ~/AAUL && git pull && ./install.sh");
   lines.push("```");
   lines.push("");
-  lines.push("## Notes de version");
-  lines.push("");
 
-  for (const entry of CHANGELOG) {
-    const heading = [`### v${entry.version}`, entry.date, entry.title]
-      .filter(Boolean)
-      .join(" — ");
-    lines.push(heading);
+  // One section per language, each with the same version headings. The
+  // dashboard shows only the section matching the user's language; a visitor
+  // browsing the repository sees both.
+  const SECTIONS = [
+    { lang: "fr", heading: "Français" },
+    { lang: "en", heading: "English" }
+  ];
+
+  for (const section of SECTIONS) {
+    lines.push(`## ${section.heading}`);
     lines.push("");
-    for (const change of entry.changes || []) {
-      lines.push(`- ${flattenChange(change)}`);
+    for (const entry of CHANGELOG) {
+      const title = entry.title?.[section.lang] || "";
+      const heading = [`### v${entry.version}`, entry.date, title]
+        .filter(Boolean)
+        .join(" — ");
+      lines.push(heading);
+      lines.push("");
+      const changes = entry.changes?.[section.lang] || [];
+      if (changes.length === 0) {
+        throw new Error(
+          `Missing "${section.lang}" changes for version ${entry.version}`
+        );
+      }
+      for (const change of changes) {
+        lines.push(`- ${flattenChange(change)}`);
+      }
+      lines.push("");
     }
-    lines.push("");
   }
 
   return { content: lines.join("\n"), dashboardVersion, agentVersion };

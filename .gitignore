@@ -5,6 +5,7 @@ dashboard/dashboard.sqlite
 dashboard/dashboard.sessions.sqlite
 dashboard/.session-secret
 dashboard/.data-protection-key
+dashboard/.release-notes-cache.md
 dashboard/.initial-admin-password
 dashboard/ssl/
 dashboard/server/ssl/*.key

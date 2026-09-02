@@ -10,22 +10,20 @@ date: 2026-09-01
   Regenerer avec :  cd dashboard && npm run gen:release
 -->
 
-# AAUL — Versions publiées
+# AAUL — Notes de version / Release notes
 
-Ce fichier est la référence de version consultée par chaque installation AAUL pour savoir si une mise à jour est disponible.
+Ce fichier est la référence de version consultée par chaque installation AAUL pour savoir si une mise à jour est disponible. Il est aussi la source des notes affichées dans l'application.
 
-| Composant | Version publiée |
-|-----------|-----------------|
+| Composant / Component | Version |
+|-----------------------|---------|
 | Dashboard | `0.12.0` |
 | Agent     | `0.9.1` |
-
-Pour mettre à jour une installation existante :
 
 ```bash
 cd ~/AAUL && git pull && ./install.sh
 ```
 
-## Notes de version
+## Français
 
 ### v0.12.0 — 2026-09-01 — Métriques des machines, sécurité des paquets et interface mobile
 
@@ -35,6 +33,7 @@ cd ~/AAUL && git pull && ./install.sh
 - Rétention des logs configurable (par âge et par taille), appliquée localement par chaque agent. Le log du jour n'est jamais supprimé.
 - Page Logs repensée : recherche, coloration par niveau, téléchargement et nettoyage immédiat d'une machine.
 - Notification de nouvelle version : le tableau de bord signale discrètement qu'une version plus récente est publiée, avec vérification manuelle depuis cette fenêtre.
+- Notes de version bilingues, publiées sur le dépôt et mises en cache localement pour rester consultables hors ligne.
 - Interface utilisable sur mobile et tablette : le menu ne recouvre plus la page, se ferme à la navigation et le contenu s'adapte aux petits écrans.
 - Interface web de l'agent : mise en page corrigée, fenêtres de confirmation intégrées à la page, et nouvelle action de redémarrage protégée par mot de passe administrateur.
 - Correctif : les fenêtres modales s'affichaient hors écran sur les pages longues.
@@ -170,3 +169,150 @@ cd ~/AAUL && git pull && ./install.sh
 - Support des agents macOS et Windows en plus de Linux.
 - Auto-update des agents via bundle signé.
 - Tableau de bord temps réel (SSE).
+
+## English
+
+### v0.12.0 — 2026-09-01 — Host metrics, package security and mobile interface
+
+- Live vital signs: every machine reports CPU, memory, disk and load on each check-in, shown on the fleet cards and detailed on the machine page with 24 hours of history.
+- New "Managed machines" panel: fleet averages and the list of hosts under pressure (CPU, memory or disk above threshold).
+- Security updates are now identified and highlighted in the Packages view, with the number of affected machines and a button to apply only the security fixes.
+- Configurable log retention (by age and by size), enforced locally by each agent. The current day's log is never deleted.
+- Redesigned Logs page: search, level highlighting, download, and immediate cleanup of a machine.
+- New-version notification: the dashboard discreetly reports when a newer version has been published, with a manual check from this window.
+- Bilingual release notes, published in the repository and cached locally so they stay readable offline.
+- Usable on phones and tablets: the menu no longer covers the page, closes on navigation, and content adapts to small screens.
+- Agent web interface: layout fixed, confirmations moved into the page, and a new reboot action protected by an administrator password.
+- Fix: modal windows opened off-screen on long pages.
+- Fix: versioned Homebrew packages (openssl@3) were rejected and made the whole fleet update fail.
+- Fix: the fleet update reported "0 machines" without explaining that package management was not enabled on them.
+- Fix: the Windows install stopped on a pip error; Python is now detected properly and installed automatically when missing.
+- Fix: the install failed silently when npm blocked the build of native modules (sqlite3, bcrypt).
+- Fix: several labels appeared in English, or as a raw key in French.
+
+### v0.11.0 — 2026-08-14 — Fleet-wide package management
+
+- New "All" view in the Packages section: installed packages and available updates aggregated across every machine.
+- "Installed" tab (All view): consolidated package list, showing which machines have each one.
+- "Updates" tab (All view): packages to update with the number of affected machines, and the machine list in a dedicated window.
+- Update selected or all packages on every targeted machine in one click.
+- Fix: modal windows now open centred on screen (long content no longer pushed them down).
+
+### v0.10.9 — 2026-07-13 — Complete release notes
+
+- Added the missing release notes from 0.10.2 to 0.10.8.
+- The currently installed version is now correctly identified in the patch notes.
+
+### v0.10.8 — 2026-07-13 — Email & SMS configuration
+
+- Restored the full SMTP configuration: server, port, TLS, credentials, sender and recipients.
+- Restored the Twilio configuration: Account SID, Auth Token, and sending and destination numbers.
+- Added alert routing, field validation, and useful error messages during Email and SMS tests.
+
+### v0.10.7 — 2026-07-13 — Complete agent list
+
+- The detailed list now shows every agent in the page, without an inner vertical scroll area.
+- Horizontal scrolling remains available to reach all columns of the detailed mode.
+
+### v0.10.6 — 2026-07-13 — Table and navigation ergonomics
+
+- Improved the compact rendering of the detailed table and its horizontal scrolling.
+- The user block and the logout button moved up under the navigation so they stay easy to reach.
+
+### v0.10.5 — 2026-07-13 — Blank-screen fixes
+
+- Fix: added the missing Activity icon that made the interface disappear after sign-in.
+- Fix: removed an invalid reference in the host information bar.
+
+### v0.10.4 — 2026-07-13 — Auto-update stability
+
+- Fixed validation of the UPDATE_AGENT commands generated by the dashboard.
+- Added regression tests, and installer detection of a service that crashes after being restarted.
+
+### v0.10.3 — 2026-07-13 — Node.js installation
+
+- Fixed the NodeSource installation when install.sh is already running as root.
+- Automatic upgrade to a Node.js version compatible with the dashboard build.
+
+### v0.10.2 — 2026-07-13 — New interface and release pipeline
+
+- Integrated the new dashboard interface.
+- Improved the install and update modes so they preserve the configuration and rebuild both the dashboard and the agent bundle.
+- Release archives now include the validated production artifacts. Agent updated to 0.7.6.
+
+### v0.10.1 — 2026-06-03 — Update consistency & pre-1.0 versioning
+
+- Fix: the "Updates" tab re-runs a scan when opened (from the "Update required" badge) to show the real state and resynchronise the dashboard badge.
+- Versioning: as the product is still in development (not officially available in production), numbering returns to pre-1.0 (dashboard 0.x, agent 0.x). 1.0 will mark the official release.
+
+### v0.10.0 — 2026-06-03 — Groups, views & custom ordering
+
+- Tabbed views: All · By OS · By group.
+- Machine groups: create / rename / delete, and assign each machine to a group.
+- Group actions: run Check updates / Update / Refresh info / Update agent on every machine of a group in one click.
+- "All" view: reorder machines by drag and drop (persistent global ordering).
+
+### v0.9.7 — 2026-06-03 — Finding & applying updates
+
+- New "Check for updates" action: scans every device for available updates without installing anything.
+- Devices with updates show "Update required" — clicking opens that machine's "Updates" tab.
+- "Updates" tab: tick packages and "Update selection", or "Update all" (full system update).
+- The "Outdated agents" card was renamed and only appears when there are any; new "Update required" card.
+- macOS fix: the installed package count (Homebrew) now displays correctly.
+
+### v0.9.6 — 2026-06-02 — Multitasking agent (heartbeat)
+
+- The agent now stays "Online" while a long command runs (a system update…): a heartbeat keeps refreshing the state while the command executes in a dedicated thread (one at a time).
+- No more false "offline" alerts during updates, and resources and state stay current in real time.
+
+### v0.9.5 — 2026-06-02 — Local interface logs
+
+- Fix: the "Logs" tab of the agent's local web interface was empty — it read a file that did not exist. It now shows the most recent dated log.
+
+### v0.9.4 — 2026-06-02 — macOS (brew) & false "offline"
+
+- macOS fix: Homebrew is now detected even when the agent runs as root (/opt/homebrew, /usr/local paths) and executed as the right user (brew refuses root). Listing, installing and removing through brew works.
+- Fix: an agent busy with a long command (e.g. a system update) is no longer wrongly reported "offline" — so no more false alerts during updates.
+
+### v0.9.3 — 2026-06-02 — Signature fix (FETCH_INFO and others)
+
+- Fix: commands returning data with non-ASCII characters or decimal numbers (e.g. FETCH_INFO: CPU model "Intel®", usage percentages) never completed — the request signature was rejected. The server now verifies the raw body bytes (insensitive to Python/Node JSON formatting).
+- Compatibility kept with already deployed agents (dual verification).
+- Agent updated to 0.7.1.
+
+### v0.9.2 — 2026-06-02 — Typed notifications & anti-spam
+
+- Notifications by type: offline, back online, update available, other — each one can be enabled and routed per channel (Email / SMS).
+- Anti-spam: one alert per problem. For "offline", re-alert at most once per configurable interval (e.g. 60 min); 0 = once only.
+- Coming back online re-arms the offline alert (the next outage notifies again).
+
+### v0.9.1 — 2026-06-02 — Agent communication fix
+
+- Major fix: the dashboard now signs its responses to the agent (HMAC). Agents that required a signed response (earlier versions) otherwise stopped polling entirely ("response signature verification failed") — blocking updates, packages and every command. They now update themselves and work again.
+
+### v0.9.0 — 2026-06-02 — Monitoring, notifications & package management
+
+- New: remote per-agent package management — list, search, install and remove (per-agent opt-in, boot-critical packages blocked), also available from the agent's local web interface. Reachable from the "Packages" menu entry or an agent's page.
+- Fix: agent updates no longer loop forever (no more re-creating UPDATE_AGENT while a command is running).
+- New: offline device monitoring (can be enabled or disabled globally and per device).
+- New: Email (SMTP) and SMS (Twilio) notifications when an agent goes down or comes back.
+- New: built-in patch notes (this window), reachable from the footer.
+- Security: console connections without an Origin header are rejected, and the password policy was strengthened.
+- Fix: long updates are no longer marked as failed prematurely.
+- Agent updated to 0.7.0.
+
+### v0.8.4 — 2026-05-20 — Version alignment
+
+- Maintenance: harmonised the dashboard and agent version numbers, and the release script.
+
+### v0.5.0 — 2026-05-01 — Console & plugins
+
+- Interactive local console (terminal), restricted to administrators.
+- Installable plugin system (.pg) with enable and disable.
+- Per-agent local web interface (system state, logs, update).
+
+### v0.3.0 — 2026-03-15 — Multi-platform
+
+- Support for macOS and Windows agents in addition to Linux.
+- Agent auto-update through a signed bundle.
+- Real-time dashboard (SSE).

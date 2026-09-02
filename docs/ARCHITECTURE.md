@@ -35,7 +35,9 @@ Important areas:
 - `dashboard/server/utils/update-check.js`
   Same periodic pattern, but for the project itself: fetches `RELEASE.md` and
   reports whether a newer AAUL version has been published. Read-only — it never
-  downloads or installs anything.
+  downloads or installs anything. It also parses the release notes out of that
+  document, caches them to disk, and serves them per language, falling back to
+  the `RELEASE.md` shipped with the installation when offline.
 - `dashboard/server/cli.js`
   Local machine CLI used to operate the installed dashboard host.
 

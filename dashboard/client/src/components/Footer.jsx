@@ -1,8 +1,7 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowUpCircle, RefreshCw } from "lucide-react";
 import { useI18n } from "../lib/i18n.js";
 import { APP_VERSION } from "../lib/appVersion.js";
-import { CHANGELOG } from "../lib/changelog.js";
 import { apiFetch } from "../lib/api.js";
 import Modal from "./Modal.jsx";
 
@@ -11,6 +10,8 @@ export default function Footer() {
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState(null);
   const [checking, setChecking] = useState(false);
+  const [notes, setNotes] = useState(null);
+  const [notesSource, setNotesSource] = useState(null);
 
   // Cached result only — the server never hits the network on this call, so it
   // is safe to ask for it on every mount.
@@ -27,6 +28,17 @@ export default function Footer() {
   useEffect(() => {
     loadStatus();
   }, [loadStatus]);
+
+  // Notes are only needed once the window is opened.
+  useEffect(() => {
+    if (!open || notes) return;
+    apiFetch("/api/admin/release-notes")
+      .then((data) => {
+        setNotes(data.notes || {});
+        setNotesSource(data.source || null);
+      })
+      .catch(() => setNotes({}));
+  }, [open, notes]);
 
   // The server announces a newly published version over SSE, so an open tab
   // learns about it without waiting for a reload.
@@ -48,6 +60,15 @@ export default function Footer() {
     try {
       const data = await apiFetch("/api/admin/update-check", { method: "POST" });
       setStatus(data.status || null);
+      // A successful check refreshes the cached document, so re-read the notes:
+      // this is what makes a not-yet-installed version's notes appear.
+      try {
+        const refreshed = await apiFetch("/api/admin/release-notes");
+        setNotes(refreshed.notes || {});
+        setNotesSource(refreshed.source || null);
+      } catch {
+        /* keep whatever we already had */
+      }
     } catch (err) {
       setStatus((previous) => ({
         ...(previous || {}),
@@ -62,6 +83,16 @@ export default function Footer() {
 
   const updateAvailable = Boolean(status?.updateAvailable && status?.latest?.dashboard);
   const latest = status?.latest?.dashboard;
+
+  // Show the section matching the interface language. If a document somehow
+  // lacks it, fall back to the other one rather than showing nothing.
+  const entries = useMemo(() => {
+    if (!notes) return [];
+    const preferred = notes[lang];
+    if (preferred?.length) return preferred;
+    const fallback = Object.values(notes).find((list) => list?.length);
+    return fallback || [];
+  }, [notes, lang]);
 
   return (
     <footer className="mt-8 text-center text-xs text-slate-500 safe-bottom">
@@ -139,6 +170,9 @@ export default function Footer() {
               {status?.disabled ? (
                 <div className="text-slate-500 mt-1">{t("updates.disabled")}</div>
               ) : null}
+              {notesSource === "local" ? (
+                <div className="text-slate-500 mt-1">{t("updates.notesLocal")}</div>
+              ) : null}
             </div>
             <button
               type="button"
@@ -152,7 +186,13 @@ export default function Footer() {
           </div>
 
           <div className="max-h-[50vh] space-y-5 overflow-y-auto pr-1">
-            {CHANGELOG.map((entry) => {
+            {notes === null ? (
+              <p className="text-xs text-slate-500">{t("common.loading")}</p>
+            ) : null}
+            {notes && entries.length === 0 ? (
+              <p className="text-xs text-slate-500">{t("updates.noNotes")}</p>
+            ) : null}
+            {entries.map((entry) => {
               const isCurrent = entry.version === APP_VERSION;
               return (
                 <div
