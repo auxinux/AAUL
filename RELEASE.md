@@ -1,5 +1,5 @@
 ---
-dashboard: 0.12.3
+dashboard: 0.12.4
 agent: 0.9.1
 date: 2026-09-02
 ---
@@ -16,7 +16,7 @@ Ce fichier est la référence de version consultée par chaque installation AAUL
 
 | Composant / Component | Version |
 |-----------------------|---------|
-| Dashboard | `0.12.3` |
+| Dashboard | `0.12.4` |
 | Agent     | `0.9.1` |
 
 ```bash
@@ -24,6 +24,10 @@ cd ~/AAUL && git pull && ./install.sh
 ```
 
 ## Français
+
+### v0.12.4 — 2026-09-02 — Tests réels de l'installateur Windows
+
+- L'installateur Windows est désormais analysé par le vrai analyseur PowerShell et couvert par des tests fonctionnels (détection de Python, rejet de l'alias du Microsoft Store, sortie de winget correctement isolée). Ces vérifications s'exécutent quand PowerShell est présent sur la machine de développement et sont ignorées sinon.
 
 ### v0.12.3 — 2026-09-02 — Installateur Windows : chemin de Python
 
@@ -183,6 +187,10 @@ cd ~/AAUL && git pull && ./install.sh
 - Tableau de bord temps réel (SSE).
 
 ## English
+
+### v0.12.4 — 2026-09-02 — Real tests for the Windows installer
+
+- The Windows installer is now parsed by PowerShell's own parser and covered by functional tests (Python detection, Microsoft Store alias rejection, winget output correctly isolated). These checks run when PowerShell is present on the development machine and are skipped otherwise.
 
 ### v0.12.3 — 2026-09-02 — Windows installer: Python path
 

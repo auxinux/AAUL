@@ -95,6 +95,27 @@ The generated PowerShell installer takes care of these itself:
 - **`tar`** — shipped with Windows 10 1803+ and Windows 11; the script checks
   for it up front.
 
+#### Testing the Windows installer
+
+The PowerShell installer is generated, so it is checked rather than trusted.
+`npm run check:install` always enforces the static rules (pure ASCII, no
+uncaptured external call inside a function, well-formed here-strings), and
+additionally — **when `pwsh` is present** — parses the generated script with
+PowerShell's own parser and runs `scripts/test-windows-installer.ps1` against
+the prerequisite functions with a stubbed `winget`.
+
+PowerShell is not required to install or run AAUL; the extra checks are simply
+skipped when it is missing. To enable them on a development machine:
+
+```bash
+curl -sL https://github.com/PowerShell/PowerShell/releases/latest/download/powershell-7.5.0-linux-x64.tar.gz \
+  | tar -xz -C ~/.local/pwsh    # any recent 7.x release works
+```
+
+One limitation worth knowing: `pwsh` on Linux is PowerShell 7 and reads files as
+UTF-8. It cannot reproduce Windows PowerShell 5.1's ANSI decoding, which is why
+the ASCII rule is enforced statically instead of relying on the parser.
+
 Service management is implemented through:
 
 - `systemd` on Linux

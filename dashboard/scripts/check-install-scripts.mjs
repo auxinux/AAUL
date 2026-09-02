@@ -15,7 +15,9 @@
  * Usage: node scripts/check-install-scripts.mjs
  */
 import fs from "fs";
+import os from "os";
 import path from "path";
+import { spawnSync } from "child_process";
 import { fileURLToPath } from "url";
 
 const dashboardDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -122,3 +124,68 @@ if (problems > 0) {
   process.exit(1);
 }
 console.log(`check-install-scripts: OK (${lines.length} PowerShell lines, pure ASCII)`);
+
+// ---------------------------------------------------------------------------
+//  Real PowerShell: parse the script, then exercise the prerequisite functions.
+// ---------------------------------------------------------------------------
+//
+// Optional on purpose. Production servers have no pwsh and must not be blocked
+// by its absence; a development machine that has it gets the stronger checks.
+// Note pwsh on Linux is PowerShell 7 and reads files as UTF-8 — it cannot
+// reproduce Windows PowerShell 5.1's ANSI decoding, which is exactly why the
+// ASCII rule above is enforced separately rather than relying on this.
+const pwsh = ["pwsh", path.join(process.env.HOME || "", ".local/pwsh/pwsh")].find((candidate) => {
+  const probe = spawnSync(candidate, ["-NoProfile", "-Command", "exit 0"], { stdio: "ignore" });
+  return probe.status === 0;
+});
+
+if (!pwsh) {
+  console.log("check-install-scripts: pwsh absent — analyse syntaxique et tests fonctionnels ignores");
+  process.exit(0);
+}
+
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aaul-ps-"));
+const scriptPath = path.join(tmpDir, "installer.ps1");
+const defsPath = path.join(tmpDir, "defs.ps1");
+
+// Replace the JS interpolations with literals so the template becomes a real
+// script; their exact values are irrelevant to syntax and to these tests.
+const renderable = template.replace(/\$\{[^}]*\}/g, "'PLACEHOLDER'");
+fs.writeFileSync(scriptPath, renderable, "utf8");
+
+// Only the prerequisite helpers: the rest needs Windows-only cmdlets.
+const defs = renderable
+  .split("\n")
+  .slice(
+    renderable.split("\n").findIndex((line) => line.startsWith("$MIN_PYTHON_MAJOR")),
+    renderable.split("\n").findIndex((line) => line.startsWith("# Writing to C:"))
+  )
+  .join("\n");
+fs.writeFileSync(defsPath, defs, "utf8");
+
+const parse = spawnSync(
+  pwsh,
+  ["-NoProfile", "-Command",
+   `$e=$null;[void][System.Management.Automation.Language.Parser]::ParseFile('${scriptPath}',[ref]$null,[ref]$e);` +
+   `if($e){$e|ForEach-Object{"ligne $($_.Extent.StartLineNumber) : $($_.Message)"};exit 1};"parse OK"`],
+  { encoding: "utf8" }
+);
+process.stdout.write(parse.stdout || "");
+if (parse.status !== 0) {
+  console.error(parse.stderr || "");
+  console.error("La syntaxe PowerShell du script generé est invalide.");
+  process.exit(1);
+}
+
+const tests = spawnSync(
+  pwsh,
+  ["-NoProfile", "-File", path.join(dashboardDir, "scripts", "test-windows-installer.ps1"),
+   "-DefinitionsPath", defsPath],
+  { encoding: "utf8" }
+);
+process.stdout.write(tests.stdout || "");
+if (tests.status !== 0) {
+  console.error(tests.stderr || "");
+  process.exit(1);
+}
+fs.rmSync(tmpDir, { recursive: true, force: true });

@@ -18,6 +18,22 @@
  */
 export const CHANGELOG = [
   {
+    version: "0.12.4",
+    date: "2026-09-02",
+    title: {
+      fr: "Tests réels de l'installateur Windows",
+      en: "Real tests for the Windows installer",
+    },
+    changes: {
+      fr: [
+        "L'installateur Windows est désormais analysé par le vrai analyseur PowerShell et couvert par des tests fonctionnels (détection de Python, rejet de l'alias du Microsoft Store, sortie de winget correctement isolée). Ces vérifications s'exécutent quand PowerShell est présent sur la machine de développement et sont ignorées sinon.",
+      ],
+      en: [
+        "The Windows installer is now parsed by PowerShell's own parser and covered by functional tests (Python detection, Microsoft Store alias rejection, winget output correctly isolated). These checks run when PowerShell is present on the development machine and are skipped otherwise.",
+      ],
+    },
+  },
+  {
     version: "0.12.3",
     date: "2026-09-02",
     title: {
