@@ -1,7 +1,7 @@
 ---
 dashboard: 0.13.0
 agent: 0.10.0
-date: 2026-09-02
+date: 2026-09-03
 ---
 
 <!--
@@ -25,7 +25,7 @@ cd ~/AAUL && git pull && ./install.sh
 
 ## Français
 
-### v0.13.0 — 2026-09-02 — Agent Windows réécrit en Go
+### v0.13.0 — 2026-09-03 — Agent Windows réécrit en Go
 
 - L'agent Windows est désormais un exécutable autonome unique. Il n'y a plus rien à installer au préalable : ni Python, ni environnement virtuel, ni pip, ni tar. C'était la cause de la quasi-totalité des échecs d'installation sur Windows.
 - L'agent tourne comme un vrai service Windows (« AgentAutoUpdate »), visible dans services.msc, démarré au démarrage de la machine et relancé automatiquement par Windows en cas d'arrêt anormal — au lieu d'une tâche planifiée.
@@ -201,7 +201,7 @@ cd ~/AAUL && git pull && ./install.sh
 
 ## English
 
-### v0.13.0 — 2026-09-02 — Windows agent rewritten in Go
+### v0.13.0 — 2026-09-03 — Windows agent rewritten in Go
 
 - The Windows agent is now a single self-contained executable. There is nothing to install first: no Python, no virtual environment, no pip, no tar. That bootstrap was the cause of nearly every failed Windows installation.
 - The agent runs as a real Windows service ("AgentAutoUpdate"), visible in services.msc, started at boot and automatically restarted by Windows if it ever stops unexpectedly — instead of a scheduled task.

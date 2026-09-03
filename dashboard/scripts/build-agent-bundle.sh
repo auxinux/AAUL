@@ -54,14 +54,23 @@ fi
 
 mkdir -p "$OUT_DIR/windows"
 
-# CGO_ENABLED=0 keeps the binary free of any C runtime dependency; -trimpath
-# strips build-host paths so the artifact is reproducible; the version is
-# stamped from the same VERSION file the Python bundle uses, so the dashboard
-# keeps a single readVersion() for every platform.
+# CGO_ENABLED=0 keeps the binary free of any C runtime dependency, and
+# -trimpath strips build-host paths. The version is stamped from the same
+# VERSION file the Python bundle uses, so the dashboard keeps a single
+# readVersion() for every platform.
+#
+# -buildvcs=false matters more than it looks. By default Go stamps the git
+# revision, the build time and a "modified" flag into the binary. Since this
+# binary is committed, that would make it change on every single commit --
+# 7.4 MB of churn per commit, for identical code -- and it would be impossible
+# to tell whether the committed binary still matches the committed sources.
+# Without it, the output is a pure function of the sources and the toolchain,
+# so `go build` twice gives the same bytes and anyone can verify the artifact.
 (
   cd "$AGENT_WIN"
   GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build \
     -trimpath \
+    -buildvcs=false \
     -ldflags "-s -w -X aaul-agent/internal/version.Version=$AGENT_VERSION" \
     -o "$WIN_AGENT" .
 )

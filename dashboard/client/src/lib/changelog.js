@@ -19,7 +19,7 @@
 export const CHANGELOG = [
   {
     version: "0.13.0",
-    date: "2026-09-02",
+    date: "2026-09-03",
     title: {
       fr: "Agent Windows réécrit en Go",
       en: "Windows agent rewritten in Go",
