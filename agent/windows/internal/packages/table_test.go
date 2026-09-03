@@ -1,6 +1,19 @@
 package packages
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+// toCRLF rewrites a fixture with Windows line endings.
+//
+// Every table test runs through this as well as on the raw LF form. The
+// fixtures were LF-only for a Windows-only program, and that hid a bug that
+// emptied every line of every real winget table: the tests passed while the
+// feature had never once worked on a real machine.
+func toCRLF(text string) string {
+	return strings.ReplaceAll(text, "\n", "\r\n")
+}
 
 // Real `winget list` output, English UI, including the leading progress spinner
 // line winget writes to stdout before the table.
@@ -144,5 +157,103 @@ Name        Id          Version
 	// And a normal table still parses.
 	if rows, sawTable := ParseTableResult(wingetListEN); !sawTable || len(rows) != 4 {
 		t.Errorf("sawTable=%v rows=%d", sawTable, len(rows))
+	}
+}
+
+// winget writes CRLF. This is the regression test for the line-ending bug that
+// made every table unparseable on a real machine while the LF fixtures passed.
+func TestParseTableHandlesWindowsLineEndings(t *testing.T) {
+	for name, fixture := range map[string]string{
+		"english": wingetListEN,
+		"french":  wingetListFR,
+	} {
+		t.Run(name, func(t *testing.T) {
+			lf := ParseTable(fixture)
+			crlf, sawTable := ParseTableResult(toCRLF(fixture))
+			if !sawTable {
+				t.Fatal("no table found in CRLF output -- every line was emptied")
+			}
+			if len(crlf) != len(lf) {
+				t.Fatalf("CRLF gave %d rows, LF gave %d", len(crlf), len(lf))
+			}
+			for index := range lf {
+				for column := range lf[index] {
+					if lf[index].Get(column) != crlf[index].Get(column) {
+						t.Errorf("row %d column %d: LF %q vs CRLF %q",
+							index, column, lf[index].Get(column), crlf[index].Get(column))
+					}
+				}
+			}
+		})
+	}
+}
+
+// A progress redraw inside a line must still be resolved once the CRLF
+// terminator has been removed.
+func TestCleanLineHandlesRedrawAndCRLFTogether(t *testing.T) {
+	if got := cleanLine("  -\r  \\\rGit    Git.Git\r"); got != "Git    Git.Git" {
+		t.Errorf("cleanLine = %q", got)
+	}
+	if got := cleanLine("Steam   Valve.Steam\r"); got != "Steam   Valve.Steam" {
+		t.Errorf("plain CRLF line = %q", got)
+	}
+}
+
+// A table captured from a real Windows 11 machine, reduced but keeping the
+// cases that break naive parsing:
+//
+//   - Ids containing spaces, which rule out splitting on whitespace and are why
+//     columns are read by offset;
+//   - a Source column empty on some rows but not all, so it must be kept;
+//   - a very long Id that pushes the later columns far to the right.
+const wingetListRealMachine = `
+Nom                                                     Id                                                             Version        Source
+--------------------------------------------------------------------------------------------------------------------------------------------
+Microsoft ASP.NET Core 8.0.30 - Shared Framework (x64)  Microsoft.DotNet.AspNetCore.8                                  8.0.30         winget
+Microsoft Edge                                          Microsoft.Edge                                                 152.0.4191.53  winget
+Microsoft.WindowsNotepad                                MSIX\Microsoft.WindowsNotepad_11.2607.14.0_x64__8wekyb3d8bbwe  11.2607.14.0
+Mozilla Firefox (x64 fr)                                ARP\Machine\X64\Mozilla Firefox                                154.0.1
+Parsec Virtual Display Driver                           Parsec.ParsecVDD                                               0.45.0.0       winget
+Steam                                                   Valve.Steam                                                    2.10.91.91     winget
+World of Slime Demo                                     ARP\Machine\X64\Steam App 4793900                              Unknown
+`
+
+func TestParseTableFromARealMachine(t *testing.T) {
+	for name, output := range map[string]string{
+		"lf":   wingetListRealMachine,
+		"crlf": toCRLF(wingetListRealMachine),
+	} {
+		t.Run(name, func(t *testing.T) {
+			rows, sawTable := ParseTableResult(output)
+			if !sawTable {
+				t.Fatal("no table found")
+			}
+			if len(rows) != 7 {
+				t.Fatalf("expected 7 rows, got %d: %#v", len(rows), rows)
+			}
+
+			// An Id carrying spaces must survive intact: it is what install and
+			// uninstall are given.
+			if got := rows[3].Get(1); got != `ARP\Machine\X64\Mozilla Firefox` {
+				t.Errorf("id with spaces = %q", got)
+			}
+			if got := rows[3].Get(2); got != "154.0.1" {
+				t.Errorf("version = %q", got)
+			}
+			// Empty Source on that row, present on others: the column stays.
+			if got := rows[3].Get(3); got != "" {
+				t.Errorf("expected an empty source, got %q", got)
+			}
+			if got := rows[5].Get(3); got != "winget" {
+				t.Errorf("source = %q", got)
+			}
+			// A name containing " - " and parentheses is not a column boundary.
+			if got := rows[0].Get(0); got != "Microsoft ASP.NET Core 8.0.30 - Shared Framework (x64)" {
+				t.Errorf("name = %q", got)
+			}
+			if got := rows[6].Get(1); got != `ARP\Machine\X64\Steam App 4793900` {
+				t.Errorf("id = %q", got)
+			}
+		})
 	}
 }

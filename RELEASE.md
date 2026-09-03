@@ -1,6 +1,6 @@
 ---
-dashboard: 0.13.6
-agent: 0.10.3
+dashboard: 0.13.7
+agent: 0.10.4
 date: 2026-09-03
 ---
 
@@ -16,14 +16,19 @@ Ce fichier est la référence de version consultée par chaque installation AAUL
 
 | Composant / Component | Version |
 |-----------------------|---------|
-| Dashboard | `0.13.6` |
-| Agent     | `0.10.3` |
+| Dashboard | `0.13.7` |
+| Agent     | `0.10.4` |
 
 ```bash
 cd ~/AAUL && git pull && ./install.sh
 ```
 
 ## Français
+
+### v0.13.7 — 2026-09-03 — Liste des paquets Windows enfin fonctionnelle
+
+- Correctif : la liste, la recherche et les mises à jour de paquets ne renvoyaient jamais rien sur Windows. L'agent découpait la sortie de winget en supprimant tout ce qui précédait le dernier retour chariot de chaque ligne — ce qui est juste pour les barres de progression, mais vide intégralement toute ligne terminée par un retour chariot, c'est-à-dire toutes les lignes produites par Windows.
+- Les paquets dont l'identifiant contient des espaces (pilotes, entrées de désinstallation Windows) sont désormais lus correctement.
 
 ### v0.13.6 — 2026-09-03 — Liste des paquets Windows : un échec silencieux
 
@@ -230,6 +235,11 @@ cd ~/AAUL && git pull && ./install.sh
 - Tableau de bord temps réel (SSE).
 
 ## English
+
+### v0.13.7 — 2026-09-03 — Windows package list finally works
+
+- Fix: package listing, search and updates never returned anything on Windows. The agent split winget's output by dropping everything before the last carriage return on each line -- correct for progress bars, but it emptied every line ending in a carriage return, which is every line Windows produces.
+- Packages whose identifier contains spaces (drivers, Windows uninstall entries) are now read correctly.
 
 ### v0.13.6 — 2026-09-03 — Windows package list: a silent failure
 

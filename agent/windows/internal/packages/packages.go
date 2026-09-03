@@ -115,9 +115,12 @@ func unparsedOutput(command, output string) error {
 	if trimmed == "" {
 		return &Error{fmt.Sprintf("winget %s n'a produit aucune sortie (%s)", command, binary)}
 	}
+	// The head, not the tail: a parse failure is about the header and the rule
+	// under it, which are the first two lines. Showing the tail cut the answer
+	// off mid-word the first time this fired.
 	return &Error{fmt.Sprintf(
-		"sortie de winget %s illisible (aucun tableau trouve).\nBinaire : %s\nSortie brute :\n%s",
-		command, binary, tailOutput(trimmed))}
+		"sortie de winget %s illisible (aucun tableau trouve).\nBinaire : %s\nDebut de la sortie brute :\n%s",
+		command, binary, headOutput(trimmed))}
 }
 
 // ListInstalled returns every package winget knows about on this machine.
@@ -210,6 +213,16 @@ type ActionResult struct {
 // maxOutputBytes caps the transcript returned to the dashboard, matching the
 // Python agent's [-4000:] slice.
 const maxOutputBytes = 4000
+
+// headOutput keeps the beginning of a transcript, for diagnosing how output
+// starts rather than how it ended.
+func headOutput(text string) string {
+	runes := []rune(text)
+	if len(runes) <= maxOutputBytes {
+		return text
+	}
+	return string(runes[:maxOutputBytes])
+}
 
 func tailOutput(text string) string {
 	runes := []rune(text)

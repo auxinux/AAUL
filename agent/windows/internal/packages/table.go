@@ -33,7 +33,14 @@ func (r Row) Get(index int) string {
 // cleanLine strips the carriage-return progress redraws and the spinner
 // characters winget emits while it queries its sources. Only the final state of
 // a redrawn line is kept.
+//
+// The order matters, and getting it wrong cost a release. Lines arrive as CRLF,
+// so after splitting on "\n" every line ends with a lone "\r". Looking for the
+// last "\r" first therefore found the line terminator and kept everything after
+// it -- nothing -- which emptied every single line of every winget table. The
+// terminator is removed first, and only then is an in-line redraw resolved.
 func cleanLine(line string) string {
+	line = strings.TrimSuffix(line, "\r")
 	if index := strings.LastIndex(line, "\r"); index >= 0 {
 		line = line[index+1:]
 	}
