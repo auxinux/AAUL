@@ -1,6 +1,6 @@
 ---
-dashboard: 0.13.3
-agent: 0.10.1
+dashboard: 0.13.4
+agent: 0.10.2
 date: 2026-09-03
 ---
 
@@ -16,14 +16,19 @@ Ce fichier est la référence de version consultée par chaque installation AAUL
 
 | Composant / Component | Version |
 |-----------------------|---------|
-| Dashboard | `0.13.3` |
-| Agent     | `0.10.1` |
+| Dashboard | `0.13.4` |
+| Agent     | `0.10.2` |
 
 ```bash
 cd ~/AAUL && git pull && ./install.sh
 ```
 
 ## Français
+
+### v0.13.4 — 2026-09-03 — Résolution de winget sous le compte système
+
+- Correctif : sur Windows, les commandes de paquets lancées depuis le tableau de bord pouvaient échouer sur « Le chemin d'accès spécifié est introuvable », alors que la même opération fonctionnait depuis une console d'administrateur. Le service tourne sous le compte système, pour lequel le raccourci « winget » du PATH n'existe pas ; l'agent retombait sur le dossier d'App Installer sans vérifier que ce chemin était réellement exécutable dans ce contexte.
+- L'agent essaie désormais tous les emplacements possibles et valide chacun en exécutant réellement winget, au lieu de se fier au premier chemin trouvé. En cas d'échec total, l'erreur remontée au tableau de bord liste chaque chemin essayé et la raison de son refus.
 
 ### v0.13.3 — 2026-09-03 — L'agent Windows ne lisait pas sa configuration
 
@@ -214,6 +219,11 @@ cd ~/AAUL && git pull && ./install.sh
 - Tableau de bord temps réel (SSE).
 
 ## English
+
+### v0.13.4 — 2026-09-03 — winget resolution under the system account
+
+- Fix: on Windows, package commands issued from the dashboard could fail with "the specified path could not be found" while the same operation worked from an administrator console. The service runs under the system account, for which the `winget` PATH shortcut does not exist; the agent fell back to the App Installer folder without checking that the path was actually executable in that context.
+- The agent now tries every possible location and validates each by actually running winget, instead of trusting the first path it finds. When none works, the error reported to the dashboard lists every path tried and why each was refused.
 
 ### v0.13.3 — 2026-09-03 — The Windows agent could not read its configuration
 

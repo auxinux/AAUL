@@ -18,6 +18,24 @@
  */
 export const CHANGELOG = [
   {
+    version: "0.13.4",
+    date: "2026-09-03",
+    title: {
+      fr: "Résolution de winget sous le compte système",
+      en: "winget resolution under the system account",
+    },
+    changes: {
+      fr: [
+        "Correctif : sur Windows, les commandes de paquets lancées depuis le tableau de bord pouvaient échouer sur « Le chemin d'accès spécifié est introuvable », alors que la même opération fonctionnait depuis une console d'administrateur. Le service tourne sous le compte système, pour lequel le raccourci « winget » du PATH n'existe pas ; l'agent retombait sur le dossier d'App Installer sans vérifier que ce chemin était réellement exécutable dans ce contexte.",
+        "L'agent essaie désormais tous les emplacements possibles et valide chacun en exécutant réellement winget, au lieu de se fier au premier chemin trouvé. En cas d'échec total, l'erreur remontée au tableau de bord liste chaque chemin essayé et la raison de son refus.",
+      ],
+      en: [
+        "Fix: on Windows, package commands issued from the dashboard could fail with \"the specified path could not be found\" while the same operation worked from an administrator console. The service runs under the system account, for which the `winget` PATH shortcut does not exist; the agent fell back to the App Installer folder without checking that the path was actually executable in that context.",
+        "The agent now tries every possible location and validates each by actually running winget, instead of trusting the first path it finds. When none works, the error reported to the dashboard lists every path tried and why each was refused.",
+      ],
+    },
+  },
+  {
     version: "0.13.3",
     date: "2026-09-03",
     title: {

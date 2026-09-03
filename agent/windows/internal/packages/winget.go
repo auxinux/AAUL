@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,60 +21,107 @@ const (
 )
 
 var (
-	locateOnce sync.Once
+	locateMu   sync.Mutex
 	wingetPath string
-	locateErr  error
 )
 
-// Locate resolves the winget executable.
+// Locate resolves a winget executable that actually runs in this process's
+// context, and caches it.
 //
-// This matters more than it looks. `winget.exe` on PATH is an app-execution
+// Finding the file is not enough. The `winget` on PATH is an app-execution
 // alias living in the *user's* %LOCALAPPDATA%\Microsoft\WindowsApps, which does
-// not exist for the LocalSystem account the service runs under: a plain
-// exec.LookPath("winget") finds nothing in service context. The real executable
-// ships inside the Microsoft.DesktopAppInstaller package under
-// C:\Program Files\WindowsApps, which SYSTEM can read, so that directory is
-// searched as well.
+// not exist for the LocalSystem account the service runs under. The real
+// executable ships inside the Microsoft.DesktopAppInstaller package under
+// C:\Program Files\WindowsApps, but that path is not always launchable either:
+// it is an MSIX package directory, and a service can be able to list it while
+// CreateProcess still fails with "the specified path could not be found".
+//
+// So every candidate is probed by actually running `winget --version`, and the
+// first one that answers wins. A failure is not cached: a service runs for
+// months, and App Installer can be provisioned or repaired underneath it.
 func Locate() (string, error) {
-	locateOnce.Do(func() {
-		if path, err := exec.LookPath("winget"); err == nil {
-			wingetPath = path
-			return
+	locateMu.Lock()
+	defer locateMu.Unlock()
+
+	if wingetPath != "" {
+		return wingetPath, nil
+	}
+	path, err := resolveWinget()
+	if err != nil {
+		return "", err
+	}
+	wingetPath = path
+	return path, nil
+}
+
+func resolveWinget() (string, error) {
+	candidates := []string{}
+	if path, err := exec.LookPath("winget"); err == nil {
+		candidates = append(candidates, path)
+	}
+	candidates = append(candidates, windowsAppsCandidates()...)
+
+	if len(candidates) == 0 {
+		return "", &Error{"winget est introuvable sur cette machine (App Installer absent ?)"}
+	}
+
+	// The report is what reaches the dashboard when nothing works. Guessing
+	// from "winget failed" is what made this expensive to diagnose the first
+	// time, so the failure carries every path tried and why each one refused.
+	var report strings.Builder
+	for _, candidate := range candidates {
+		if err := probeWinget(candidate); err != nil {
+			fmt.Fprintf(&report, "\n  %s -> %v", candidate, err)
+			continue
 		}
-		if path := findInWindowsApps(); path != "" {
-			wingetPath = path
-			return
+		return candidate, nil
+	}
+	return "", &Error{"winget est present mais aucun chemin n'est executable dans ce contexte :" + report.String()}
+}
+
+// probeTimeout bounds the `winget --version` check. A cold MSIX start is slow
+// the first time, but nothing like a package operation.
+const probeTimeout = 20 * time.Second
+
+func probeWinget(path string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+
+	output, err := exec.CommandContext(ctx, path, "--version").CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		return fmt.Errorf("pas de reponse en %s", probeTimeout)
+	}
+	if err != nil {
+		detail := strings.TrimSpace(string(output))
+		if detail == "" {
+			return err
 		}
-		locateErr = &Error{"winget est introuvable sur cette machine"}
-	})
-	return wingetPath, locateErr
+		return fmt.Errorf("%v (%s)", err, detail)
+	}
+	return nil
 }
 
 // appInstallerPattern matches every installed version of the App Installer
 // package, for either architecture.
 const appInstallerPattern = "Microsoft.DesktopAppInstaller_*__8wekyb3d8bbwe"
 
-func findInWindowsApps() string {
+// windowsAppsCandidates lists every staged App Installer package, newest first.
+//
+// All of them are returned rather than just the newest: when several versions
+// are staged, the newest is not necessarily the one this account can launch.
+func windowsAppsCandidates() []string {
 	programFiles := os.Getenv("ProgramFiles")
 	if programFiles == "" {
 		programFiles = `C:\Program Files`
 	}
 	matches, err := filepath.Glob(filepath.Join(programFiles, "WindowsApps", appInstallerPattern, "winget.exe"))
 	if err != nil || len(matches) == 0 {
-		return ""
+		return nil
 	}
-
-	// Several versions can be staged side by side; the newest is the one the
-	// alias would have resolved to.
-	best := ""
-	bestVersion := ""
-	for _, match := range matches {
-		version := packageVersionFromPath(match)
-		if best == "" || compareVersions(version, bestVersion) > 0 {
-			best, bestVersion = match, version
-		}
-	}
-	return best
+	sort.Slice(matches, func(i, j int) bool {
+		return compareVersions(packageVersionFromPath(matches[i]), packageVersionFromPath(matches[j])) > 0
+	})
+	return matches
 }
 
 // packageVersionFromPath pulls "1.24.25200.0" out of a path ending in
