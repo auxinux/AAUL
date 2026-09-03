@@ -1,5 +1,5 @@
 ---
-dashboard: 0.13.1
+dashboard: 0.13.2
 agent: 0.10.0
 date: 2026-09-03
 ---
@@ -16,7 +16,7 @@ Ce fichier est la référence de version consultée par chaque installation AAUL
 
 | Composant / Component | Version |
 |-----------------------|---------|
-| Dashboard | `0.13.1` |
+| Dashboard | `0.13.2` |
 | Agent     | `0.10.0` |
 
 ```bash
@@ -24,6 +24,11 @@ cd ~/AAUL && git pull && ./install.sh
 ```
 
 ## Français
+
+### v0.13.2 — 2026-09-03 — Commande d'installation Windows
+
+- Correctif : sur certaines machines, la commande d'installation Windows ne faisait rien et Windows affichait « Sélectionnez une application pour ouvrir powershell ». Elle relançait un PowerShell imbriqué, inutile puisque la commande se lance déjà depuis PowerShell, et dépendait donc du nom « powershell » résolvable dans le PATH. Elle s'exécute maintenant directement dans la session en cours.
+- Correctif : l'installation échouait aussi lorsque le profil de l'utilisateur contenait une espace (« C:\Users\Jean Dupont »), le chemin du script temporaire étant alors coupé en deux. Le chemin est désormais protégé, et le script est supprimé après l'installation puisqu'il contient le jeton de l'agent.
 
 ### v0.13.1 — 2026-09-03 — Consigne d'installation Windows périmée
 
@@ -204,6 +209,11 @@ cd ~/AAUL && git pull && ./install.sh
 - Tableau de bord temps réel (SSE).
 
 ## English
+
+### v0.13.2 — 2026-09-03 — Windows install command
+
+- Fix: on some machines the Windows install command did nothing and Windows showed "Select an app to open powershell". It spawned a nested PowerShell -- pointless, since the command is already run from PowerShell -- and therefore depended on the name "powershell" resolving on PATH. It now runs directly in the current session.
+- Fix: the install also failed when the user profile contained a space ("C:\Users\Jean Dupont"), because the temporary script path was split in two. The path is now quoted, and the script is deleted after the install since it carries the agent token.
 
 ### v0.13.1 — 2026-09-03 — Stale Windows install note
 

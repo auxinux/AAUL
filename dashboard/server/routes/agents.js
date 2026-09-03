@@ -20,7 +20,9 @@ const router = express.Router();
 const INSTALLER_FILENAMES = {
   linux: "/tmp/aaul-install.sh",
   macos: "/tmp/aaul-install.sh",
-  windows: "$env:TEMP\\aaul-install.ps1"
+  // Quoted at every use: a TEMP path under a profile with a space in it
+  // ("C:\\Users\\Jean Dupont\\...") would otherwise split into two arguments.
+  windows: '"$env:TEMP\\aaul-install.ps1"'
 };
 
 // Every platform uses the same one-time token, only the generated script differs.
@@ -40,10 +42,24 @@ function buildInstallCommands(baseUrl, installToken) {
   return {
     linux: `curl -fsSLo ${INSTALLER_FILENAMES.linux} '${urls.linux}' && sudo sh ${INSTALLER_FILENAMES.linux} && rm -f ${INSTALLER_FILENAMES.linux}`,
     macos: `curl -fsSLo ${INSTALLER_FILENAMES.macos} '${urls.macos}' && sudo bash ${INSTALLER_FILENAMES.macos} && rm -f ${INSTALLER_FILENAMES.macos}`,
+    // Runs in the PowerShell session the operator already opened as
+    // Administrator, rather than spawning a nested one.
+    //
+    // The nested `powershell -Command "..."` this replaces bought nothing and
+    // added a failure mode: it depends on the name `powershell` resolving on
+    // PATH, and when it does not -- a missing System32 entry, or a Microsoft
+    // Store app-execution-alias stub shadowing it -- Windows silently pops the
+    // "choose an app to open 'powershell'" dialog instead of running anything.
+    // That is the same class of trap as the Python Store alias, and there is no
+    // reason to be exposed to it here.
+    //
+    // Process scope on the execution policy: it applies to this session only,
+    // needs no registry write, and disappears when the window closes.
     windows:
-      `powershell -NoProfile -ExecutionPolicy Bypass -Command "` +
+      `Set-ExecutionPolicy Bypass -Scope Process -Force; ` +
       `Invoke-WebRequest '${urls.windows}' -UseBasicParsing -OutFile ${INSTALLER_FILENAMES.windows}; ` +
-      `& ${INSTALLER_FILENAMES.windows}"`,
+      `try { & ${INSTALLER_FILENAMES.windows} } ` +
+      `finally { Remove-Item ${INSTALLER_FILENAMES.windows} -Force -ErrorAction SilentlyContinue }`,
     urls
   };
 }

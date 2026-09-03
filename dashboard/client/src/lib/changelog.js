@@ -18,6 +18,24 @@
  */
 export const CHANGELOG = [
   {
+    version: "0.13.2",
+    date: "2026-09-03",
+    title: {
+      fr: "Commande d'installation Windows",
+      en: "Windows install command",
+    },
+    changes: {
+      fr: [
+        "Correctif : sur certaines machines, la commande d'installation Windows ne faisait rien et Windows affichait « Sélectionnez une application pour ouvrir powershell ». Elle relançait un PowerShell imbriqué, inutile puisque la commande se lance déjà depuis PowerShell, et dépendait donc du nom « powershell » résolvable dans le PATH. Elle s'exécute maintenant directement dans la session en cours.",
+        "Correctif : l'installation échouait aussi lorsque le profil de l'utilisateur contenait une espace (« C:\\Users\\Jean Dupont »), le chemin du script temporaire étant alors coupé en deux. Le chemin est désormais protégé, et le script est supprimé après l'installation puisqu'il contient le jeton de l'agent.",
+      ],
+      en: [
+        "Fix: on some machines the Windows install command did nothing and Windows showed \"Select an app to open powershell\". It spawned a nested PowerShell -- pointless, since the command is already run from PowerShell -- and therefore depended on the name \"powershell\" resolving on PATH. It now runs directly in the current session.",
+        "Fix: the install also failed when the user profile contained a space (\"C:\\Users\\Jean Dupont\"), because the temporary script path was split in two. The path is now quoted, and the script is deleted after the install since it carries the agent token.",
+      ],
+    },
+  },
+  {
     version: "0.13.1",
     date: "2026-09-03",
     title: {
