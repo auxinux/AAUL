@@ -20,7 +20,10 @@ dashboard/client/.env
 dashboard/client/dist/
 dashboard/public/agent/*.tar.gz
 dashboard/public/agent/VERSION
-dashboard/public/agent/windows/
+# dashboard/public/agent/windows/aaul-agent.exe is deliberately NOT ignored.
+# The Python bundle is rebuilt from tracked sources on any host; the Go binary
+# needs a toolchain a dashboard server has no reason to carry, so it ships in
+# the repository and reaches production through git pull.
 release/
 
 # Logs
