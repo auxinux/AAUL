@@ -18,6 +18,22 @@
  */
 export const CHANGELOG = [
   {
+    version: "0.13.1",
+    date: "2026-09-03",
+    title: {
+      fr: "Consigne d'installation Windows périmée",
+      en: "Stale Windows install note",
+    },
+    changes: {
+      fr: [
+        "Correctif : la page d'ajout d'une machine annonçait encore que Python serait installé automatiquement sur Windows. L'agent Windows est un exécutable autonome depuis la version 0.13.0 : seuls des droits d'administrateur sont nécessaires.",
+      ],
+      en: [
+        "Fix: the add-machine page still announced that Python would be installed automatically on Windows. The Windows agent has been a self-contained executable since 0.13.0: administrator rights are the only requirement.",
+      ],
+    },
+  },
+  {
     version: "0.13.0",
     date: "2026-09-03",
     title: {

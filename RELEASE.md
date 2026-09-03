@@ -1,5 +1,5 @@
 ---
-dashboard: 0.13.0
+dashboard: 0.13.1
 agent: 0.10.0
 date: 2026-09-03
 ---
@@ -16,7 +16,7 @@ Ce fichier est la référence de version consultée par chaque installation AAUL
 
 | Composant / Component | Version |
 |-----------------------|---------|
-| Dashboard | `0.13.0` |
+| Dashboard | `0.13.1` |
 | Agent     | `0.10.0` |
 
 ```bash
@@ -24,6 +24,10 @@ cd ~/AAUL && git pull && ./install.sh
 ```
 
 ## Français
+
+### v0.13.1 — 2026-09-03 — Consigne d'installation Windows périmée
+
+- Correctif : la page d'ajout d'une machine annonçait encore que Python serait installé automatiquement sur Windows. L'agent Windows est un exécutable autonome depuis la version 0.13.0 : seuls des droits d'administrateur sont nécessaires.
 
 ### v0.13.0 — 2026-09-03 — Agent Windows réécrit en Go
 
@@ -200,6 +204,10 @@ cd ~/AAUL && git pull && ./install.sh
 - Tableau de bord temps réel (SSE).
 
 ## English
+
+### v0.13.1 — 2026-09-03 — Stale Windows install note
+
+- Fix: the add-machine page still announced that Python would be installed automatically on Windows. The Windows agent has been a self-contained executable since 0.13.0: administrator rights are the only requirement.
 
 ### v0.13.0 — 2026-09-03 — Windows agent rewritten in Go
 
