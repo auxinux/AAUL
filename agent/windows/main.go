@@ -218,14 +218,14 @@ func (h *serviceHandler) Execute(args []string, requests <-chan svc.ChangeReques
 	}
 }
 
-// finishUninstall tears down what the agent cannot remove while it is running.
+// finishUninstall hands the teardown to a detached process.
+//
+// Stopping, deregistering and deleting all have to happen after this process
+// has exited, so none of it can be done here -- see ScheduleSelfRemoval.
 func finishUninstall() {
 	if err := service.ScheduleSelfRemoval(); err != nil {
 		logs.Append("[uninstall] could not schedule the removal: %v", err)
 	}
-	// Deleting the service is what makes the uninstall visible in services.msc;
-	// the detached script then removes the files.
-	go service.Remove()
 }
 
 // --------------------------------------------------------------------------

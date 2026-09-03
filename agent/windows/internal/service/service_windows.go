@@ -10,6 +10,7 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -62,16 +63,30 @@ func Install(binaryPath string) error {
 		}
 	}
 
-	service, err := manager.CreateService(Name, binaryPath, mgr.Config{
+	settings := mgr.Config{
 		DisplayName: DisplayName,
 		Description: Description,
 		StartType:   mgr.StartAutomatic,
 		// LocalSystem is required: the agent installs updates and writes under
 		// %PROGRAMDATA%, neither of which a restricted account can do.
 		ServiceStartName: "LocalSystem",
-	})
-	if err != nil {
-		return fmt.Errorf("creating the service failed: %w", err)
+	}
+
+	// Deleting a service only takes effect once every handle to it is closed.
+	// An open services.msc, or the SCM itself still holding the stopped
+	// service, defers it -- and CreateService then fails with
+	// ERROR_SERVICE_MARKED_FOR_DELETE. Reinstalling over an existing agent is
+	// the normal upgrade path, so it retries rather than failing the install.
+	var service *mgr.Service
+	for attempt := 0; ; attempt++ {
+		service, err = manager.CreateService(Name, binaryPath, settings)
+		if err == nil {
+			break
+		}
+		if attempt >= 10 || !errors.Is(err, windows.ERROR_SERVICE_MARKED_FOR_DELETE) {
+			return fmt.Errorf("creating the service failed: %w", err)
+		}
+		time.Sleep(time.Second)
 	}
 	defer service.Close()
 
@@ -213,17 +228,25 @@ func RequestRestart() error {
 	return command.Start()
 }
 
-// ScheduleSelfRemoval deletes the runtime directory after this process exits.
+// ScheduleSelfRemoval tears down the installation from outside the agent.
 //
-// The agent cannot delete the directory holding its own running executable, so
-// a detached cmd.exe waits a couple of seconds and then removes everything,
-// including itself.
+// Everything here has to happen after this process is gone: the service cannot
+// deregister itself (deleting a service that is still running only marks it for
+// deletion), and it cannot delete the directory holding its own executable. A
+// detached cmd.exe waits, then stops, deletes and removes in that order.
+//
+// Doing the deletion from a goroutine inside the agent does not work: the
+// process exits as soon as the service handler returns, taking the goroutine
+// with it and leaving the service registered but pointing at a deleted binary.
 func ScheduleSelfRemoval() error {
 	scriptPath := filepath.Join(os.TempDir(), "agentautoupdate-uninstall.cmd")
 	script := fmt.Sprintf("@echo off\r\n"+
 		"ping 127.0.0.1 -n 4 >NUL\r\n"+
+		"sc stop %s >NUL 2>&1\r\n"+
+		"ping 127.0.0.1 -n 4 >NUL\r\n"+
+		"sc delete %s >NUL 2>&1\r\n"+
 		"rmdir /S /Q \"%s\"\r\n"+
-		"del /F /Q \"%%~f0\"\r\n", config.RuntimeDir())
+		"del /F /Q \"%%~f0\"\r\n", Name, Name, config.RuntimeDir())
 	if err := os.WriteFile(scriptPath, []byte(script), 0o600); err != nil {
 		return err
 	}
