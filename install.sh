@@ -84,10 +84,14 @@ is_linux() { [ "$(uname -s)" = "Linux" ]; }
 is_macos() { [ "$(uname -s)" = "Darwin" ]; }
 is_root()  { [ "${EUID:-$(id -u)}" -eq 0 ]; }
 
-# Lire la version depuis un package.json (pur bash, pas besoin de node)
-parse_pkg_version() {
-  grep '"version"' "$1" 2>/dev/null | head -1 \
-    | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/'
+# Lire la version du dashboard depuis sa source unique.
+#
+# On lisait auparavant dashboard/package.json. C'est une COPIE de la version,
+# et une montée de version qui l'oubliait faisait afficher « v0.12.4 → v0.12.4 »
+# alors que les notes annonçaient 0.13.0. dashboard/VERSION est le seul fichier
+# qu'un humain modifie ; tout le reste en dérive.
+parse_dashboard_version() {
+  tr -d '[:space:]' < "$1/dashboard/VERSION" 2>/dev/null
 }
 
 get_sudo() {
@@ -767,7 +771,7 @@ print_summary() {
   local host_ip
   host_ip="$(hostname -I 2>/dev/null | awk '{print $1}' || echo "IP_SERVEUR")"
 
-  local new_dashboard_ver; new_dashboard_ver="$(parse_pkg_version "$INSTALL_DIR/dashboard/package.json")"
+  local new_dashboard_ver; new_dashboard_ver="$(parse_dashboard_version "$INSTALL_DIR")"
   local new_agent_ver; new_agent_ver="$(cat "$INSTALL_DIR/agent/app/VERSION" 2>/dev/null | tr -d '[:space:]')"
   new_dashboard_ver="${new_dashboard_ver:-?}"
   new_agent_ver="${new_agent_ver:-?}"
@@ -822,7 +826,7 @@ info "Cible   : $INSTALL_DIR"
 info "Service : $SERVICE_NAME  (user: $SERVICE_USER)"
 
 # Versions dans les sources
-SRC_DASHBOARD_VER="$(parse_pkg_version "$SRC_DIR/dashboard/package.json")"
+SRC_DASHBOARD_VER="$(parse_dashboard_version "$SRC_DIR")"
 SRC_AGENT_VER="$(cat "$SRC_DIR/agent/app/VERSION" 2>/dev/null | tr -d '[:space:]')"
 SRC_DASHBOARD_VER="${SRC_DASHBOARD_VER:-?}"
 SRC_AGENT_VER="${SRC_AGENT_VER:-?}"
@@ -860,7 +864,7 @@ trap 'on_error $? $LINENO' ERR
 
 if $IS_UPDATE; then
   # Versions actuellement en production
-  INST_DASHBOARD_VER="$(parse_pkg_version "$INSTALL_DIR/dashboard/package.json")"
+  INST_DASHBOARD_VER="$(parse_dashboard_version "$INSTALL_DIR")"
   INST_AGENT_VER="$(cat "$INSTALL_DIR/agent/app/VERSION" 2>/dev/null | tr -d '[:space:]')"
   INST_DASHBOARD_VER="${INST_DASHBOARD_VER:-?}"
   INST_AGENT_VER="${INST_AGENT_VER:-?}"

@@ -57,12 +57,6 @@ done
 # ---------------------------------------------------------------------------
 #  Fichiers porteurs de version
 # ---------------------------------------------------------------------------
-DASH_PKG="$ROOT_DIR/dashboard/package.json"
-DASH_LOCK="$ROOT_DIR/dashboard/package-lock.json"
-CLIENT_PKG="$ROOT_DIR/dashboard/client/package.json"
-CLIENT_LOCK="$ROOT_DIR/dashboard/client/package-lock.json"
-APP_VERSION_JS="$ROOT_DIR/dashboard/client/src/lib/appVersion.js"
-CLIENT_ENV_EXAMPLE="$ROOT_DIR/dashboard/client/.env.example"
 AGENT_VERSION_FILE="$ROOT_DIR/agent/app/VERSION"
 DASH_VERSION_FILE="$ROOT_DIR/dashboard/VERSION"
 
@@ -70,37 +64,9 @@ validate_semver() {
   echo "$1" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || die "Version invalide: '$1' (attendu X.Y.Z)"
 }
 
-# Remplace la 1re occurrence de "version": "..." dans un package.json
-set_pkg_version() {
-  local file="$1" ver="$2" tmp
-  tmp="$(mktemp)"
-  awk -v ver="$ver" '
-    !done && /"version"[[:space:]]*:/ {
-      sub(/"version"[[:space:]]*:[[:space:]]*"[^"]*"/, "\"version\": \"" ver "\"");
-      done=1
-    }
-    { print }
-  ' "$file" > "$tmp"
-  mv "$tmp" "$file"
-}
-
-# Un package-lock v3 porte la version du projet à la racine et dans packages[""].
-set_lock_version() {
-  local file="$1" ver="$2" tmp
-  tmp="$(mktemp)"
-  awk -v ver="$ver" '
-    replacements < 2 && /"version"[[:space:]]*:/ {
-      sub(/"version"[[:space:]]*:[[:space:]]*"[^"]*"/, "\"version\": \"" ver "\"");
-      replacements++
-    }
-    { print }
-  ' "$file" > "$tmp"
-  mv "$tmp" "$file"
-}
-
 if [ "$NO_BUMP" = false ]; then
   # Valeurs par défaut = versions déjà présentes dans les fichiers
-  [ -n "$DASHBOARD_VER" ] || DASHBOARD_VER="$(grep '"version"' "$DASH_PKG" | head -1 | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')"
+  [ -n "$DASHBOARD_VER" ] || DASHBOARD_VER="$(tr -d '[:space:]' < "$DASH_VERSION_FILE")"
   [ -n "$AGENT_VER" ]     || AGENT_VER="$(tr -d '[:space:]' < "$AGENT_VERSION_FILE")"
 
   validate_semver "$DASHBOARD_VER"
@@ -108,18 +74,18 @@ if [ "$NO_BUMP" = false ]; then
 
   info "Mise à jour des versions → dashboard ${BOLD}$DASHBOARD_VER${NC}, agent ${BOLD}$AGENT_VER${NC}"
 
-  set_pkg_version "$DASH_PKG"   "$DASHBOARD_VER"
-  set_pkg_version "$CLIENT_PKG" "$DASHBOARD_VER"
-  set_lock_version "$DASH_LOCK"   "$DASHBOARD_VER"
-  set_lock_version "$CLIENT_LOCK" "$DASHBOARD_VER"
-  # Le footer affiche clientPkg.version au build (cf. vite.config.js). On
-  # aligne aussi le fallback et le .env.example pour rester cohérent.
-  sed -i.bak "s/|| \"[0-9]*\.[0-9]*\.[0-9]*\"/|| \"$DASHBOARD_VER\"/" "$APP_VERSION_JS" && rm -f "$APP_VERSION_JS.bak"
-  sed -i.bak "s/^VITE_APP_VERSION=.*/VITE_APP_VERSION=$DASHBOARD_VER/" "$CLIENT_ENV_EXAMPLE" && rm -f "$CLIENT_ENV_EXAMPLE.bak"
+  # Seules ces deux lignes écrivent une version. Tout le reste en dérive :
+  # install.sh et vite.config.js lisent dashboard/VERSION directement, et
+  # sync-versions.mjs recopie le numéro dans les package.json et les lockfiles,
+  # seuls fichiers à en garder une copie parce que npm l'exige.
   echo "$AGENT_VER" > "$AGENT_VERSION_FILE"
   echo "$DASHBOARD_VER" > "$DASH_VERSION_FILE"
 
-  ok "Versions écrites"
+  if (cd "$ROOT_DIR/dashboard" && node scripts/sync-versions.mjs); then
+    ok "Versions écrites et propagées"
+  else
+    die "Échec de la propagation des versions"
+  fi
 
   # RELEASE.md est la référence consultée par chaque installation pour savoir
   # si une mise à jour existe. On le régénère ici, juste après l'écriture des
@@ -130,7 +96,7 @@ if [ "$NO_BUMP" = false ]; then
     die "Échec de la génération de RELEASE.md"
   fi
 else
-  DASHBOARD_VER="$(grep '"version"' "$DASH_PKG" | head -1 | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')"
+  DASHBOARD_VER="$(tr -d '[:space:]' < "$DASH_VERSION_FILE")"
   AGENT_VER="$(tr -d '[:space:]' < "$AGENT_VERSION_FILE")"
   warn "--no-bump : versions inchangées (dashboard=$DASHBOARD_VER, agent=$AGENT_VER)"
 fi
@@ -138,16 +104,9 @@ fi
 # ---------------------------------------------------------------------------
 #  Vérification de cohérence
 # ---------------------------------------------------------------------------
-DASH_V="$(grep '"version"' "$DASH_PKG" | head -1 | sed 's/.*"\([0-9.]*\)".*/\1/')"
-CLIENT_V="$(grep '"version"' "$CLIENT_PKG" | head -1 | sed 's/.*"\([0-9.]*\)".*/\1/')"
-DASH_LOCK_V="$(grep '"version"' "$DASH_LOCK" | head -1 | sed 's/.*"\([0-9.]*\)".*/\1/')"
-DASH_LOCK_ROOT_V="$(grep '"version"' "$DASH_LOCK" | head -2 | tail -1 | sed 's/.*"\([0-9.]*\)".*/\1/')"
-CLIENT_LOCK_V="$(grep '"version"' "$CLIENT_LOCK" | head -1 | sed 's/.*"\([0-9.]*\)".*/\1/')"
-CLIENT_LOCK_ROOT_V="$(grep '"version"' "$CLIENT_LOCK" | head -2 | tail -1 | sed 's/.*"\([0-9.]*\)".*/\1/')"
-for version in "$CLIENT_V" "$DASH_LOCK_V" "$DASH_LOCK_ROOT_V" "$CLIENT_LOCK_V" "$CLIENT_LOCK_ROOT_V"; do
-  [ "$DASH_V" = "$version" ] || \
-    die "Incohérence de version dashboard/client/lockfiles (attendu $DASH_V, trouvé $version)"
-done
+DASH_V="$(tr -d '[:space:]' < "$DASH_VERSION_FILE")"
+(cd "$ROOT_DIR/dashboard" && node scripts/sync-versions.mjs --check) || \
+  die "Incohérence de version — lancer: cd dashboard && npm run sync:versions"
 ok "Cohérence vérifiée — dashboard $DASH_V / agent $AGENT_VER"
 
 # ---------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 ---
-dashboard: 0.13.4
+dashboard: 0.13.5
 agent: 0.10.2
 date: 2026-09-03
 ---
@@ -16,7 +16,7 @@ Ce fichier est la référence de version consultée par chaque installation AAUL
 
 | Composant / Component | Version |
 |-----------------------|---------|
-| Dashboard | `0.13.4` |
+| Dashboard | `0.13.5` |
 | Agent     | `0.10.2` |
 
 ```bash
@@ -24,6 +24,11 @@ cd ~/AAUL && git pull && ./install.sh
 ```
 
 ## Français
+
+### v0.13.5 — 2026-09-03 — Un seul endroit pour le numéro de version
+
+- Correctif : le numéro de version affiché en bas de l'interface pouvait rester une version en retard. Un fichier .env créé au premier déploiement et jamais mis à jour figeait la valeur utilisée à la compilation.
+- Le numéro de version n'existe plus qu'à un seul endroit par composant : dashboard/VERSION et agent/app/VERSION. L'installateur, l'interface et les notes de version lisent ces fichiers directement, au lieu d'en recopier la valeur. Une vérification échoue désormais si une copie dérive.
 
 ### v0.13.4 — 2026-09-03 — Résolution de winget sous le compte système
 
@@ -219,6 +224,11 @@ cd ~/AAUL && git pull && ./install.sh
 - Tableau de bord temps réel (SSE).
 
 ## English
+
+### v0.13.5 — 2026-09-03 — One place for the version number
+
+- Fix: the version shown at the bottom of the interface could stay a release behind. A .env file created on first deployment and never refreshed pinned the value used at build time.
+- The version number now exists in exactly one place per component: dashboard/VERSION and agent/app/VERSION. The installer, the interface and the release notes read those files directly instead of copying the value. A check now fails if any copy drifts.
 
 ### v0.13.4 — 2026-09-03 — winget resolution under the system account
 

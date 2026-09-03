@@ -18,6 +18,24 @@
  */
 export const CHANGELOG = [
   {
+    version: "0.13.5",
+    date: "2026-09-03",
+    title: {
+      fr: "Un seul endroit pour le numéro de version",
+      en: "One place for the version number",
+    },
+    changes: {
+      fr: [
+        "Correctif : le numéro de version affiché en bas de l'interface pouvait rester une version en retard. Un fichier .env créé au premier déploiement et jamais mis à jour figeait la valeur utilisée à la compilation.",
+        "Le numéro de version n'existe plus qu'à un seul endroit par composant : dashboard/VERSION et agent/app/VERSION. L'installateur, l'interface et les notes de version lisent ces fichiers directement, au lieu d'en recopier la valeur. Une vérification échoue désormais si une copie dérive.",
+      ],
+      en: [
+        "Fix: the version shown at the bottom of the interface could stay a release behind. A .env file created on first deployment and never refreshed pinned the value used at build time.",
+        "The version number now exists in exactly one place per component: dashboard/VERSION and agent/app/VERSION. The installer, the interface and the release notes read those files directly instead of copying the value. A check now fails if any copy drifts.",
+      ],
+    },
+  },
+  {
     version: "0.13.4",
     date: "2026-09-03",
     title: {

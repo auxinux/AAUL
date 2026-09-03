@@ -6,7 +6,10 @@ import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const clientPkg = JSON.parse(fs.readFileSync(path.join(__dirname, "package.json"), "utf8"));
+// The version comes from dashboard/VERSION, the single file a human edits.
+// Reading package.json here is what let the footer fall a whole release behind
+// when a bump missed it.
+const appVersion = fs.readFileSync(path.join(__dirname, "..", "VERSION"), "utf8").trim();
 
 let apiUrl = "http://127.0.0.1:3001";
 let vitePort = 5173;
@@ -72,7 +75,11 @@ try {
 export default defineConfig({
   plugins: [react()],
   define: {
-    "import.meta.env.VITE_APP_VERSION": JSON.stringify(clientPkg.version)
+    // A plain constant rather than import.meta.env.VITE_APP_VERSION: a stale
+    // client/.env left over from an older install carries that variable and
+    // would silently override the build. install.sh only ever creates that
+    // file, it never refreshes it.
+    __APP_VERSION__: JSON.stringify(appVersion)
   },
   server: {
     host: "0.0.0.0",

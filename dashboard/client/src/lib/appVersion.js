@@ -1,1 +1,5 @@
-export const APP_VERSION = import.meta.env.VITE_APP_VERSION || "0.13.4";
+/* global __APP_VERSION__ */
+// Injected at build time by vite.config.js from dashboard/VERSION.
+// "dev" only appears when the file is evaluated outside a Vite build.
+export const APP_VERSION =
+  typeof __APP_VERSION__ === "string" ? __APP_VERSION__ : "dev";

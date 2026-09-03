@@ -1,6 +1,6 @@
 {
   "name": "agent-auto-update-dashboard",
-  "version": "0.13.4",
+  "version": "0.13.5",
   "license": "MIT",
   "private": true,
   "type": "module",
@@ -13,7 +13,9 @@
     "check:refs": "node scripts/check-client-refs.mjs client/src",
     "check:i18n": "node scripts/check-i18n.mjs client/src",
     "check:install": "node scripts/check-install-scripts.mjs",
-    "check:client": "npm run --silent check:refs && npm run --silent check:i18n && npm run --silent check:install",
+    "check:versions": "node scripts/sync-versions.mjs --check",
+    "sync:versions": "node scripts/sync-versions.mjs",
+    "check:client": "npm run --silent check:refs && npm run --silent check:i18n && npm run --silent check:install && npm run --silent check:versions",
     "gen:release": "node scripts/generate-release-md.mjs",
     "check:release": "node scripts/generate-release-md.mjs --check",
     "test:security": "node server/utils/command-policy.test.js",

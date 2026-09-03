@@ -81,7 +81,7 @@ function assertDashboardVersionsAgree(dashboardVersion) {
     .join("\n");
   throw new Error(
     `dashboard/VERSION is ${dashboardVersion} but these disagree:\n${detail}\n` +
-      "Bump every version file together -- release.sh does this; editing one by hand does not."
+      "dashboard/VERSION is the single source. Run: npm run sync:versions"
   );
 }
 

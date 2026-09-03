@@ -166,6 +166,40 @@ Service management is implemented through:
 - `launchd` on macOS
 - the Service Control Manager on Windows
 
+## Versioning
+
+Two files hold a version, and they are the only two a human edits:
+
+| File | Component |
+|---|---|
+| `dashboard/VERSION` | dashboard |
+| `agent/app/VERSION` | agent — Python bundle *and* Go Windows binary |
+
+Everything else derives from them:
+
+- `install.sh` reads `dashboard/VERSION` for its install report;
+- `client/vite.config.js` reads it at build time and injects `__APP_VERSION__`,
+  which is what the footer shows;
+- `scripts/generate-release-md.mjs` reads both to produce `RELEASE.md`;
+- `scripts/build-agent-bundle.sh` stamps `agent/app/VERSION` into the Go binary.
+
+npm insists on carrying its own copy in `package.json` and the lockfiles.
+Nothing user-facing reads those, and `scripts/sync-versions.mjs` writes them:
+
+```bash
+echo 0.14.0 > dashboard/VERSION
+cd dashboard && npm run sync:versions
+```
+
+`release.sh` does this for you. `npm run check:versions` (part of
+`npm run check:client`) fails if anything has drifted.
+
+This is deliberate scar tissue. The version used to be duplicated across eight
+files; three releases in a row shipped with one of them missed — an install
+reporting `v0.12.4 -> v0.12.4` while the release notes announced 0.13.0, then a
+footer a full version behind because a stale `client/.env` overrode the build.
+The rule is now: one file per component, everything else reads it.
+
 ## Development
 
 Install dashboard dependencies:
