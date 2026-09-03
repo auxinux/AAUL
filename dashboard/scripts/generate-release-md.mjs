@@ -11,6 +11,12 @@
  *   agent/app/VERSION                   the published agent version
  *   client/src/lib/changelog.js         the release notes shown in the app
  *
+ * It also checks that dashboard/VERSION agrees with the version carried by the
+ * package.json family. Those are two different sources read by two different
+ * consumers -- this file by the update check, package.json by install.sh -- and
+ * a bump that touched only one of them shipped once already: an installation
+ * reported "v0.12.4 -> v0.12.4" while RELEASE.md announced 0.13.0.
+ *
  * `release.sh` runs this right after it bumps the version files, so the two
  * cannot drift apart.
  *
@@ -39,6 +45,46 @@ function readVersionFile(relativePath) {
   return value;
 }
 
+/**
+ * Every file that carries the dashboard version. install.sh reports the one in
+ * dashboard/package.json, the client footer reads its own package.json, and the
+ * update check reads dashboard/VERSION -- so all of them have to agree or the
+ * same release appears under two different numbers depending on where you look.
+ */
+const DASHBOARD_VERSION_FILES = [
+  "dashboard/package.json",
+  "dashboard/client/package.json",
+  "dashboard/package-lock.json",
+  "dashboard/client/package-lock.json",
+];
+
+function packageVersion(relativePath) {
+  const full = path.join(repoRoot, relativePath);
+  if (!fs.existsSync(full)) {
+    throw new Error(`Missing file: ${relativePath}`);
+  }
+  const parsed = JSON.parse(fs.readFileSync(full, "utf8"));
+  return parsed.version;
+}
+
+function assertDashboardVersionsAgree(dashboardVersion) {
+  const mismatches = DASHBOARD_VERSION_FILES.map((relativePath) => ({
+    relativePath,
+    found: packageVersion(relativePath),
+  })).filter((entry) => entry.found !== dashboardVersion);
+
+  if (mismatches.length === 0) {
+    return;
+  }
+  const detail = mismatches
+    .map((entry) => `  ${entry.relativePath}: ${entry.found}`)
+    .join("\n");
+  throw new Error(
+    `dashboard/VERSION is ${dashboardVersion} but these disagree:\n${detail}\n` +
+      "Bump every version file together -- release.sh does this; editing one by hand does not."
+  );
+}
+
 /** Collapse newlines so one changelog entry stays one Markdown list item. */
 function flattenChange(text) {
   return String(text).replace(/\r?\n/g, " ").trim();
@@ -47,6 +93,7 @@ function flattenChange(text) {
 async function build() {
   const dashboardVersion = readVersionFile("dashboard/VERSION");
   const agentVersion = readVersionFile("agent/app/VERSION");
+  assertDashboardVersionsAgree(dashboardVersion);
 
   const changelogUrl = pathToFileURL(
     path.join(dashboardDir, "client", "src", "lib", "changelog.js")
