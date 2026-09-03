@@ -1,6 +1,6 @@
 ---
-dashboard: 0.13.7
-agent: 0.10.4
+dashboard: 0.13.8
+agent: 0.10.5
 date: 2026-09-03
 ---
 
@@ -16,14 +16,20 @@ Ce fichier est la référence de version consultée par chaque installation AAUL
 
 | Composant / Component | Version |
 |-----------------------|---------|
-| Dashboard | `0.13.7` |
-| Agent     | `0.10.4` |
+| Dashboard | `0.13.8` |
+| Agent     | `0.10.5` |
 
 ```bash
 cd ~/AAUL && git pull && ./install.sh
 ```
 
 ## Français
+
+### v0.13.8 — 2026-09-03 — Recherche de paquets et comptage sur Windows
+
+- Correctif : une recherche de paquets sans résultat était présentée comme une panne, avec un code d'erreur brut à la place de « Aucun résultat ». winget signale l'absence de correspondance par un code de sortie dédié, désormais reconnu comme une réponse valide — pour la recherche comme pour la vérification des mises à jour.
+- Correctif : quand une commande winget échouait, l'agent ne remontait que « exit status » suivi d'un nombre, en jetant le message de winget. L'erreur transmise au tableau de bord contient maintenant la sortie réelle.
+- La carte « Paquets » d'une machine affiche « aucune information » au lieu de « 0 installés » lorsque le comptage a échoué. Un zéro était indiscernable d'une machine réellement vide.
 
 ### v0.13.7 — 2026-09-03 — Liste des paquets Windows enfin fonctionnelle
 
@@ -235,6 +241,12 @@ cd ~/AAUL && git pull && ./install.sh
 - Tableau de bord temps réel (SSE).
 
 ## English
+
+### v0.13.8 — 2026-09-03 — Package search and count on Windows
+
+- Fix: a package search with no match was presented as a failure, showing a raw error code instead of "no results". winget signals a lack of matches with a dedicated exit code, now recognised as a valid answer -- for search as well as for update checks.
+- Fix: when a winget command failed, the agent reported only "exit status" followed by a number, discarding winget's message. The error sent to the dashboard now carries the real output.
+- A machine's "Packages" card shows "no info" rather than "0 installed" when the count failed. A zero was indistinguishable from a genuinely empty machine.
 
 ### v0.13.7 — 2026-09-03 — Windows package list finally works
 

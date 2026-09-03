@@ -61,18 +61,21 @@ type Disk struct {
 
 // Info is the complete inventory payload.
 type Info struct {
-	CollectedAt       string   `json:"collectedAt"`
-	OS                OS       `json:"os"`
-	PackageManager    string   `json:"packageManager"`
-	CPU               CPU      `json:"cpu"`
-	Memory            Memory   `json:"memory"`
-	GPU               []string `json:"gpu"`
-	IPs               []string `json:"ips"`
-	Disks             []Disk   `json:"disks"`
-	Repositories      []string `json:"repositories"`
-	PackagesInstalled int      `json:"packagesInstalled"`
-	UptimeSeconds     int64    `json:"uptimeSeconds"`
-	RebootRequired    bool     `json:"rebootRequired"`
+	CollectedAt    string   `json:"collectedAt"`
+	OS             OS       `json:"os"`
+	PackageManager string   `json:"packageManager"`
+	CPU            CPU      `json:"cpu"`
+	Memory         Memory   `json:"memory"`
+	GPU            []string `json:"gpu"`
+	IPs            []string `json:"ips"`
+	Disks          []Disk   `json:"disks"`
+	Repositories   []string `json:"repositories"`
+	// Nullable on purpose: a machine whose winget cannot be queried must not
+	// report "0 Installed", which the dashboard renders identically to a
+	// machine that genuinely has no packages. null makes it show "no info".
+	PackagesInstalled *int  `json:"packagesInstalled"`
+	UptimeSeconds     int64 `json:"uptimeSeconds"`
+	RebootRequired    bool  `json:"rebootRequired"`
 }
 
 // cpuSampleWindow matches the metrics sampler: long enough for a meaningful
@@ -296,10 +299,11 @@ func getRepositories() []string {
 	return sources
 }
 
-func getPackageCount() int {
+func getPackageCount() *int {
 	result, err := packages.ListInstalled()
 	if err != nil {
-		return 0
+		logs.Append("[info] could not count installed packages: %v", err)
+		return nil
 	}
-	return result.Count
+	return &result.Count
 }

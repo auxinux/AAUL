@@ -2,6 +2,7 @@ package packages
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -172,9 +173,41 @@ func compareVersions(left, right string) int {
 // prompt, which would otherwise hang until the timeout on a fresh machine.
 var readOnlyCommands = map[string]bool{"list": true, "search": true, "upgrade": true}
 
+// CommandError is a winget invocation that exited non-zero.
+//
+// It carries winget's own output. Returning a bare "exit status 1" throws away
+// the only part an operator can act on -- and callers here all discarded the
+// transcript when they saw an error, so every winget failure reached the
+// dashboard as a meaningless number.
+type CommandError struct {
+	Args     []string
+	ExitCode int
+	Output   string
+}
+
+func (e *CommandError) Error() string {
+	detail := strings.TrimSpace(e.Output)
+	if detail == "" {
+		return fmt.Sprintf("winget %s a echoue (code %d), sans sortie",
+			strings.Join(e.Args, " "), e.ExitCode)
+	}
+	return fmt.Sprintf("winget %s a echoue (code %d) :\n%s",
+		strings.Join(e.Args, " "), e.ExitCode, detail)
+}
+
+// wingetNoMatchExitCode is APPINSTALLER_CLI_ERROR_NO_APPLICATIONS_FOUND.
+// winget uses it when a query matched nothing, which is an answer rather than a
+// failure.
+const wingetNoMatchExitCode = 0x8A150014
+
+// isNoMatch reports whether an error is winget saying "nothing matched".
+func isNoMatch(err error) bool {
+	var commandError *CommandError
+	return errors.As(err, &commandError) && commandError.ExitCode == wingetNoMatchExitCode
+}
+
 // run executes winget with a fixed argument list and returns the combined
-// output. A non-zero exit is returned as an error but the output is still
-// returned, because the transcript is what the operator needs to see.
+// output. A non-zero exit is returned as a CommandError carrying that output.
 func run(timeout time.Duration, args ...string) (string, error) {
 	binary, err := Locate()
 	if err != nil {
@@ -196,7 +229,15 @@ func run(timeout time.Duration, args ...string) (string, error) {
 	if ctx.Err() == context.DeadlineExceeded {
 		return text, &Error{fmt.Sprintf("Délai dépassé (winget %s)", strings.Join(args, " "))}
 	}
-	return text, runErr
+	if runErr != nil {
+		exitCode := -1
+		var exitError *exec.ExitError
+		if errors.As(runErr, &exitError) {
+			exitCode = exitError.ExitCode()
+		}
+		return text, &CommandError{Args: args, ExitCode: exitCode, Output: text}
+	}
+	return text, nil
 }
 
 func hasFlag(args []string, flag string) bool {

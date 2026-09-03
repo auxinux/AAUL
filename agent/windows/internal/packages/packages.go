@@ -174,15 +174,18 @@ func Search(query string) (*SearchResult, error) {
 		return nil, err
 	}
 	output, err := run(queryTimeout, "search", query)
+	// A query that matched nothing is an answer, and winget signals it with a
+	// dedicated exit code rather than with a message this code would have to
+	// recognise in every UI language.
+	if isNoMatch(err) {
+		return &SearchResult{Manager: Manager, Query: query, Results: []SearchHit{}}, nil
+	}
 	if err != nil {
 		return nil, err
 	}
 
 	rows, sawTable := ParseTableResult(output)
-	// Unlike `list`, a search legitimately returns nothing when no package
-	// matches -- but winget still prints "No package found matching..." rather
-	// than a table, so only a non-empty unparsed output is suspicious.
-	if !sawTable && !mentionsNoResult(output) {
+	if !sawTable {
 		return nil, unparsedOutput("search", output)
 	}
 
@@ -291,6 +294,10 @@ type UpdatesResult struct {
 // CheckUpdates lists available upgrades without installing anything.
 func CheckUpdates() (*UpdatesResult, error) {
 	output, err := run(queryTimeout, "upgrade")
+	// Nothing to upgrade is reported the same way as nothing matched.
+	if isNoMatch(err) {
+		return &UpdatesResult{Manager: Manager, Updates: []Update{}}, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -357,14 +364,6 @@ func UpdatePackages(names []string) (*ActionResult, error) {
 		Success: success,
 		Output:  tailOutput(transcript.String()),
 	}, nil
-}
-
-// mentionsNoResult recognises winget's "nothing matched" wording without
-// depending on the UI language: every locale prints the criteria phrase with
-// the same shape, so the check stays on the structure -- a short output with no
-// table and no error markers.
-func mentionsNoResult(output string) bool {
-	return len(strings.TrimSpace(output)) < 200
 }
 
 // Sources lists the configured winget sources, one entry per line, in the shape
