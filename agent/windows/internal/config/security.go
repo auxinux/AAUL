@@ -2,7 +2,6 @@ package config
 
 import (
 	"encoding/json"
-	"os"
 )
 
 // Security is the local TLS and signing policy. It mirrors security.json as
@@ -25,7 +24,7 @@ func DefaultSecurity() Security {
 
 // LoadSecurity reads security.json, falling back to the strict defaults.
 func LoadSecurity() Security {
-	data, err := os.ReadFile(SecurityConfigPath())
+	data, err := ReadJSONFile(SecurityConfigPath())
 	if err != nil {
 		return DefaultSecurity()
 	}

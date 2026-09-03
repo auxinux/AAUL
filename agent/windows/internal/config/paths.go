@@ -8,9 +8,29 @@
 package config
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 )
+
+// utf8BOM is the byte-order mark Windows tooling likes to prepend to text files.
+var utf8BOM = []byte{0xEF, 0xBB, 0xBF}
+
+// ReadJSONFile reads a JSON file, tolerating a leading UTF-8 BOM.
+//
+// This is not hypothetical. Windows PowerShell 5.1 writes a BOM for
+// `Set-Content -Encoding UTF8` (PowerShell 7 does not, which makes the
+// behaviour depend on which one wrote the file), and encoding/json rejects it
+// with "invalid character '\ufeff' looking for beginning of value". Notepad
+// adds one too. The agent has to read whatever an installer or an administrator
+// actually put on disk.
+func ReadJSONFile(path string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return bytes.TrimPrefix(data, utf8BOM), nil
+}
 
 // Default runtime root. %PROGRAMDATA% is empty on non-Windows hosts, which only
 // happens when running the unit tests, and those override AAUL_RUNTIME_DIR.

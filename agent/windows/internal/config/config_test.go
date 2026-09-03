@@ -180,3 +180,49 @@ func TestShouldVerifyResponsesHonoursExplicitFalse(t *testing.T) {
 		t.Error("an explicit false should win over signRequests")
 	}
 }
+
+// Windows PowerShell 5.1 writes a UTF-8 BOM for `Set-Content -Encoding UTF8`,
+// which is how the installer writes config.json. encoding/json rejects it with
+// "invalid character '\\ufeff' looking for beginning of value" -- the agent
+// installed fine and then could not read its own configuration.
+func TestLoadAcceptsAUTF8BOM(t *testing.T) {
+	useTempRuntime(t)
+	withBOM := append([]byte{0xEF, 0xBB, 0xBF}, []byte(installerConfig)...)
+	if err := os.WriteFile(ConfigPath(), withBOM, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("a config written by PowerShell was rejected: %v", err)
+	}
+	if cfg.AgentID != "8f2c-agent" {
+		t.Errorf("agentId = %q", cfg.AgentID)
+	}
+	if cfg.DisplayName != "Poste Réception" {
+		t.Errorf("the BOM was stripped but the content was damaged: %q", cfg.DisplayName)
+	}
+}
+
+// The same applies to the files an administrator may have opened in Notepad.
+func TestStateAndSecurityAcceptAUTF8BOM(t *testing.T) {
+	useTempRuntime(t)
+	bom := []byte{0xEF, 0xBB, 0xBF}
+
+	if err := os.WriteFile(StatePath(), append(bom, []byte(`{"lastStatus":"OK"}`)...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	state := ReadState()
+	if state.LastStatus == nil || *state.LastStatus != "OK" {
+		t.Errorf("state with a BOM was not read: %+v", state)
+	}
+
+	if err := os.WriteFile(SecurityConfigPath(), append(bom, []byte(`{"verifyTls":false,"allowSelfSigned":true,"signRequests":true}`)...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A BOM must not silently fall back to the strict defaults either: that
+	// would ignore a policy the operator deliberately relaxed.
+	if security := LoadSecurity(); security.VerifyTLS || !security.AllowSelfSigned {
+		t.Errorf("security.json with a BOM was ignored: %+v", security)
+	}
+}

@@ -18,6 +18,24 @@
  */
 export const CHANGELOG = [
   {
+    version: "0.13.3",
+    date: "2026-09-03",
+    title: {
+      fr: "L'agent Windows ne lisait pas sa configuration",
+      en: "The Windows agent could not read its configuration",
+    },
+    changes: {
+      fr: [
+        "Correctif : l'agent Windows s'installait correctement mais refusait ensuite sa propre configuration (« invalid character \\ufeff »). Windows PowerShell 5.1 ajoute une marque d'ordre d'octets aux fichiers qu'il écrit, contrairement à PowerShell 7 — le fichier dépendait donc du shell utilisé. L'installateur écrit maintenant un fichier propre, et l'agent accepte cette marque quelle que soit sa provenance, y compris sur un fichier ouvert dans le Bloc-notes.",
+        "L'installateur signale désormais explicitement l'échec du premier contact avec le dashboard au lieu d'annoncer une réussite.",
+      ],
+      en: [
+        "Fix: the Windows agent installed correctly but then rejected its own configuration (\"invalid character \\ufeff\"). Windows PowerShell 5.1 adds a byte-order mark to the files it writes, unlike PowerShell 7 -- so the file depended on which shell ran the installer. The installer now writes a clean file, and the agent accepts that mark whatever wrote it, including a file opened in Notepad.",
+        "The installer now reports a failed first contact with the dashboard explicitly, instead of announcing success.",
+      ],
+    },
+  },
+  {
     version: "0.13.2",
     date: "2026-09-03",
     title: {

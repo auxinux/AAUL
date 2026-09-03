@@ -2,7 +2,6 @@ package config
 
 import (
 	"encoding/json"
-	"os"
 )
 
 // State holds the volatile result of the last update run, reported to the
@@ -32,7 +31,7 @@ type State struct {
 // holds reporting data, not anything the agent needs to function.
 func ReadState() *State {
 	state := &State{}
-	data, err := os.ReadFile(StatePath())
+	data, err := ReadJSONFile(StatePath())
 	if err != nil {
 		return state
 	}

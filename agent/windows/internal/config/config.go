@@ -35,7 +35,7 @@ type Config struct {
 // Load reads config.json, applying the same defaults as the Python agent.
 func Load() (*Config, error) {
 	path := ConfigPath()
-	data, err := os.ReadFile(path)
+	data, err := ReadJSONFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, fmt.Errorf("missing config: %s", path)

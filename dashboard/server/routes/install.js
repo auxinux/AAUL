@@ -605,14 +605,25 @@ Move-Item -Path $TMP_EXE -Destination $AGENT_EXE -Force
 
 # --- Configure and register ----------------------------------------------
 
-@{
+$configJson = @{
     agentId = $AGENT_ID
     displayName = $DISPLAY_NAME
     dashboardUrl = $DASHBOARD_URL
     agentApiToken = $API_TOKEN
     pollIntervalSeconds = $POLL_SECONDS
     schedule = @{ enabled = ([bool]($SCHEDULE_ENABLED -eq 1)); dailyTime = $SCHEDULE_TIME }
-} | ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $INSTALL_DIR 'config.json') -Encoding UTF8
+} | ConvertTo-Json -Depth 5
+
+# Written through .NET rather than Set-Content on purpose. "Set-Content
+# -Encoding UTF8" prepends a byte-order mark on Windows PowerShell 5.1 but not
+# on PowerShell 7, so the file contents depended on which shell ran the
+# installer -- and a JSON parser is entitled to reject a leading BOM. The agent
+# tolerates one now, but writing a clean file is the actual fix.
+[System.IO.File]::WriteAllText(
+    (Join-Path $INSTALL_DIR 'config.json'),
+    $configJson,
+    (New-Object System.Text.UTF8Encoding($false))
+)
 
 # The binary registers itself: start type, LocalSystem account, restart-on-
 # failure and the PATH entry all live in the agent, next to the code that
@@ -624,8 +635,15 @@ if ($LASTEXITCODE -ne 0) { throw "Echec de l'enregistrement du service (code $LA
 if ($LASTEXITCODE -ne 0) { throw "Echec du demarrage du service (code $LASTEXITCODE)." }
 
 # First heartbeat, so the agent shows up in the dashboard immediately instead
-# of at the end of the first poll interval.
+# of at the end of the first poll interval. A failure here does not undo the
+# install -- the service will retry on its own -- but it must not be reported as
+# a success either: it is the first thing that proves the agent can actually
+# reach the dashboard.
 & $AGENT_EXE check-in
+if ($LASTEXITCODE -ne 0) {
+    Write-Warning "Le service est installe mais le premier contact avec le dashboard a echoue (code $LASTEXITCODE)."
+    Write-Warning "Diagnostic : aaul-agent run --console"
+}
 
 Write-Host 'Agent installed for Windows.'
 Write-Host "Binary:  $AGENT_EXE"

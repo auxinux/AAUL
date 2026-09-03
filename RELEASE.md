@@ -1,6 +1,6 @@
 ---
-dashboard: 0.13.2
-agent: 0.10.0
+dashboard: 0.13.3
+agent: 0.10.1
 date: 2026-09-03
 ---
 
@@ -16,14 +16,19 @@ Ce fichier est la référence de version consultée par chaque installation AAUL
 
 | Composant / Component | Version |
 |-----------------------|---------|
-| Dashboard | `0.13.2` |
-| Agent     | `0.10.0` |
+| Dashboard | `0.13.3` |
+| Agent     | `0.10.1` |
 
 ```bash
 cd ~/AAUL && git pull && ./install.sh
 ```
 
 ## Français
+
+### v0.13.3 — 2026-09-03 — L'agent Windows ne lisait pas sa configuration
+
+- Correctif : l'agent Windows s'installait correctement mais refusait ensuite sa propre configuration (« invalid character \ufeff »). Windows PowerShell 5.1 ajoute une marque d'ordre d'octets aux fichiers qu'il écrit, contrairement à PowerShell 7 — le fichier dépendait donc du shell utilisé. L'installateur écrit maintenant un fichier propre, et l'agent accepte cette marque quelle que soit sa provenance, y compris sur un fichier ouvert dans le Bloc-notes.
+- L'installateur signale désormais explicitement l'échec du premier contact avec le dashboard au lieu d'annoncer une réussite.
 
 ### v0.13.2 — 2026-09-03 — Commande d'installation Windows
 
@@ -209,6 +214,11 @@ cd ~/AAUL && git pull && ./install.sh
 - Tableau de bord temps réel (SSE).
 
 ## English
+
+### v0.13.3 — 2026-09-03 — The Windows agent could not read its configuration
+
+- Fix: the Windows agent installed correctly but then rejected its own configuration ("invalid character \ufeff"). Windows PowerShell 5.1 adds a byte-order mark to the files it writes, unlike PowerShell 7 -- so the file depended on which shell ran the installer. The installer now writes a clean file, and the agent accepts that mark whatever wrote it, including a file opened in Notepad.
+- The installer now reports a failed first contact with the dashboard explicitly, instead of announcing success.
 
 ### v0.13.2 — 2026-09-03 — Windows install command
 
