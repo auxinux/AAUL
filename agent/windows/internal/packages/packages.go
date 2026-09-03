@@ -102,6 +102,24 @@ type ListResult struct {
 	Count    int       `json:"count"`
 }
 
+// unparsedOutput turns output we could not read into an error the operator can
+// act on.
+//
+// Reporting an empty list instead would be worse than useless: the dashboard
+// renders "no packages" exactly like "you have not run this yet", so a machine
+// whose winget answers something unexpected looks like a button that does
+// nothing. The raw output is the only thing that says why.
+func unparsedOutput(command, output string) error {
+	binary, _ := Locate()
+	trimmed := strings.TrimSpace(output)
+	if trimmed == "" {
+		return &Error{fmt.Sprintf("winget %s n'a produit aucune sortie (%s)", command, binary)}
+	}
+	return &Error{fmt.Sprintf(
+		"sortie de winget %s illisible (aucun tableau trouve).\nBinaire : %s\nSortie brute :\n%s",
+		command, binary, tailOutput(trimmed))}
+}
+
 // ListInstalled returns every package winget knows about on this machine.
 func ListInstalled() (*ListResult, error) {
 	output, err := run(queryTimeout, "list")
@@ -109,8 +127,15 @@ func ListInstalled() (*ListResult, error) {
 		return nil, err
 	}
 
+	rows, sawTable := ParseTableResult(output)
+	// A machine always has installed packages, so a missing table here is a
+	// failure to read the output, not an empty result.
+	if !sawTable {
+		return nil, unparsedOutput("list", output)
+	}
+
 	items := []Package{}
-	for _, row := range ParseTable(output) {
+	for _, row := range rows {
 		items = append(items, Package{Name: row.Get(1), Version: row.Get(2)})
 	}
 	sort.Slice(items, func(i, j int) bool {
@@ -150,8 +175,16 @@ func Search(query string) (*SearchResult, error) {
 		return nil, err
 	}
 
+	rows, sawTable := ParseTableResult(output)
+	// Unlike `list`, a search legitimately returns nothing when no package
+	// matches -- but winget still prints "No package found matching..." rather
+	// than a table, so only a non-empty unparsed output is suspicious.
+	if !sawTable && !mentionsNoResult(output) {
+		return nil, unparsedOutput("search", output)
+	}
+
 	hits := []SearchHit{}
-	for _, row := range ParseTable(output) {
+	for _, row := range rows {
 		id := row.Get(1)
 		if id == "" {
 			continue
@@ -249,8 +282,11 @@ func CheckUpdates() (*UpdatesResult, error) {
 		return nil, err
 	}
 
+	rows, _ := ParseTableResult(output)
+	// `upgrade` prints no table when everything is up to date, which is the
+	// common case and a perfectly good answer.
 	updates := []Update{}
-	for _, row := range ParseTable(output) {
+	for _, row := range rows {
 		id := row.Get(1)
 		if id == "" {
 			continue
@@ -308,6 +344,14 @@ func UpdatePackages(names []string) (*ActionResult, error) {
 		Success: success,
 		Output:  tailOutput(transcript.String()),
 	}, nil
+}
+
+// mentionsNoResult recognises winget's "nothing matched" wording without
+// depending on the UI language: every locale prints the criteria phrase with
+// the same shape, so the check stays on the structure -- a short output with no
+// table and no error markers.
+func mentionsNoResult(output string) bool {
+	return len(strings.TrimSpace(output)) < 200
 }
 
 // Sources lists the configured winget sources, one entry per line, in the shape

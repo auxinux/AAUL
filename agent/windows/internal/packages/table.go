@@ -106,12 +106,26 @@ func columnOffsets(lines [][]rune) []int {
 	return offsets
 }
 
-// ParseTable extracts the data rows of a winget table.
+// ParseTable extracts the data rows of a winget table, discarding whether a
+// table was present at all. Callers that need to tell "nothing to report" apart
+// from "output we could not parse" should use ParseTableResult.
+func ParseTable(output string) []Row {
+	rows, _ := ParseTableResult(output)
+	return rows
+}
+
+// ParseTableResult extracts the data rows and reports whether a table was found.
+//
+// The distinction matters. "winget upgrade" legitimately prints no table when
+// nothing needs upgrading, but "winget list" always has one -- so an absent
+// table there means the output was something else entirely (an error, another
+// encoding, a prompt) and returning an empty list would hide the problem behind
+// a screen that looks exactly like "you have not clicked yet".
 //
 // Values are sliced by rune offset. A name containing double-width characters
 // can therefore bleed into the next column — best effort, and far better than
 // treating the whole line as a package name.
-func ParseTable(output string) []Row {
+func ParseTableResult(output string) ([]Row, bool) {
 	lines := strings.Split(output, "\n")
 	for index := range lines {
 		lines[index] = cleanLine(lines[index])
@@ -126,7 +140,7 @@ func ParseTable(output string) []Row {
 	}
 	// No table at all: winget printed an error or "no installed package found".
 	if separator < 1 {
-		return nil
+		return nil, false
 	}
 
 	// The table ends at the first blank line. What follows is winget's summary
@@ -140,12 +154,13 @@ func ParseTable(output string) []Row {
 		body = append(body, []rune(line))
 	}
 	if len(body) < 2 {
-		return nil
+		// A header and a rule, but no rows: a real, empty table.
+		return nil, true
 	}
 
 	offsets := columnOffsets(body)
 	if len(offsets) == 0 {
-		return nil
+		return nil, false
 	}
 
 	rows := []Row{}
@@ -168,7 +183,7 @@ func ParseTable(output string) []Row {
 		}
 		rows = append(rows, row)
 	}
-	return dropEmptyColumns(rows)
+	return dropEmptyColumns(rows), true
 }
 
 // dropEmptyColumns removes columns that are blank on every row.

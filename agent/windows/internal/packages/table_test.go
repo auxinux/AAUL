@@ -112,3 +112,37 @@ VLC                  VideoLAN.VLC         3.0.21             winget
 		t.Errorf("source = %q", got)
 	}
 }
+
+// The dashboard shows "no packages" exactly like "you have not run this yet",
+// so the agent must be able to tell an empty table apart from output it could
+// not read at all.
+func TestParseTableResultDistinguishesEmptyFromUnreadable(t *testing.T) {
+	// A real table with no data rows: a legitimate empty answer.
+	const emptyTable = `
+Name        Id          Version
+-------------------------------
+`
+	rows, sawTable := ParseTableResult(emptyTable)
+	if !sawTable {
+		t.Error("a header plus a rule is a table, even with no rows")
+	}
+	if len(rows) != 0 {
+		t.Errorf("expected no rows, got %#v", rows)
+	}
+
+	// Output with no table at all: something else happened.
+	for _, output := range []string{
+		"No installed package found matching input criteria.\n",
+		"Impossible de se connecter a la source.\n",
+		"",
+	} {
+		if _, sawTable := ParseTableResult(output); sawTable {
+			t.Errorf("%q should not be reported as a table", output)
+		}
+	}
+
+	// And a normal table still parses.
+	if rows, sawTable := ParseTableResult(wingetListEN); !sawTable || len(rows) != 4 {
+		t.Errorf("sawTable=%v rows=%d", sawTable, len(rows))
+	}
+}

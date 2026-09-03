@@ -1,6 +1,6 @@
 ---
-dashboard: 0.13.5
-agent: 0.10.2
+dashboard: 0.13.6
+agent: 0.10.3
 date: 2026-09-03
 ---
 
@@ -16,14 +16,20 @@ Ce fichier est la référence de version consultée par chaque installation AAUL
 
 | Composant / Component | Version |
 |-----------------------|---------|
-| Dashboard | `0.13.5` |
-| Agent     | `0.10.2` |
+| Dashboard | `0.13.6` |
+| Agent     | `0.10.3` |
 
 ```bash
 cd ~/AAUL && git pull && ./install.sh
 ```
 
 ## Français
+
+### v0.13.6 — 2026-09-03 — Liste des paquets Windows : un échec silencieux
+
+- Correctif : sur Windows, « Charger la liste » pouvait sembler ne rien faire. Quand l'agent n'arrivait pas à lire la sortie de winget, il renvoyait une liste vide sans erreur — et l'écran affichait alors le même message que si le bouton n'avait jamais été cliqué.
+- L'agent distingue désormais « aucun paquet » de « sortie illisible ». Dans le second cas il remonte une erreur contenant le binaire winget utilisé et sa sortie brute, de quoi diagnostiquer sans deviner.
+- L'interface indique explicitement quand la machine a répondu sans signaler aucun paquet, au lieu de réafficher l'invitation initiale.
 
 ### v0.13.5 — 2026-09-03 — Un seul endroit pour le numéro de version
 
@@ -224,6 +230,12 @@ cd ~/AAUL && git pull && ./install.sh
 - Tableau de bord temps réel (SSE).
 
 ## English
+
+### v0.13.6 — 2026-09-03 — Windows package list: a silent failure
+
+- Fix: on Windows, "Load list" could look like it did nothing. When the agent could not read winget's output it returned an empty list with no error -- and the screen then showed the same message as if the button had never been clicked.
+- The agent now tells "no packages" apart from "unreadable output". In the second case it reports an error carrying the winget binary it used and the raw output, enough to diagnose without guessing.
+- The interface now says explicitly when the machine answered but reported no packages, instead of showing the initial prompt again.
 
 ### v0.13.5 — 2026-09-03 — One place for the version number
 

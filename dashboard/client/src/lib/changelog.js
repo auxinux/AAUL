@@ -18,6 +18,26 @@
  */
 export const CHANGELOG = [
   {
+    version: "0.13.6",
+    date: "2026-09-03",
+    title: {
+      fr: "Liste des paquets Windows : un échec silencieux",
+      en: "Windows package list: a silent failure",
+    },
+    changes: {
+      fr: [
+        "Correctif : sur Windows, « Charger la liste » pouvait sembler ne rien faire. Quand l'agent n'arrivait pas à lire la sortie de winget, il renvoyait une liste vide sans erreur — et l'écran affichait alors le même message que si le bouton n'avait jamais été cliqué.",
+        "L'agent distingue désormais « aucun paquet » de « sortie illisible ». Dans le second cas il remonte une erreur contenant le binaire winget utilisé et sa sortie brute, de quoi diagnostiquer sans deviner.",
+        "L'interface indique explicitement quand la machine a répondu sans signaler aucun paquet, au lieu de réafficher l'invitation initiale.",
+      ],
+      en: [
+        "Fix: on Windows, \"Load list\" could look like it did nothing. When the agent could not read winget's output it returned an empty list with no error -- and the screen then showed the same message as if the button had never been clicked.",
+        "The agent now tells \"no packages\" apart from \"unreadable output\". In the second case it reports an error carrying the winget binary it used and the raw output, enough to diagnose without guessing.",
+        "The interface now says explicitly when the machine answered but reported no packages, instead of showing the initial prompt again.",
+      ],
+    },
+  },
+  {
     version: "0.13.5",
     date: "2026-09-03",
     title: {

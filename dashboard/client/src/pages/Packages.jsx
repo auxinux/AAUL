@@ -41,6 +41,10 @@ export default function Packages() {
 
   // Installed list
   const [installed, setInstalled] = useState([]);
+  // Distinguishes "never queried" from "queried, nothing came back": both leave
+  // `installed` empty, and showing the same hint for each made a working button
+  // look broken.
+  const [installedLoaded, setInstalledLoaded] = useState(false);
   const [installedManager, setInstalledManager] = useState("");
   const [filter, setFilter] = useState("");
   const [loadingList, setLoadingList] = useState(false);
@@ -161,6 +165,7 @@ export default function Packages() {
       } else {
         setInstalled(cmd.result?.packages || []);
         setInstalledManager(cmd.result?.manager || "");
+        setInstalledLoaded(true);
       }
     } catch (err) {
       setMessage("Erreur : " + (err.message || ""));
@@ -322,7 +327,11 @@ export default function Packages() {
               ))}
             </div>
           ) : (
-            <p className="text-sm text-slate-500">Clique sur « Charger la liste » pour interroger la machine distante.</p>
+            <p className="text-sm text-slate-500">
+              {installedLoaded
+                ? "La machine a répondu, mais n'a signalé aucun paquet installé."
+                : "Clique sur « Charger la liste » pour interroger la machine distante."}
+            </p>
           )}
         </div>
       )}
