@@ -7,7 +7,7 @@
  * called before an agent exists as a running service.
  */
 import express from "express";
-import config from "../config.js";
+import config, { MIN_AGENT_POLL_SECONDS, MAX_AGENT_POLL_SECONDS } from "../config.js";
 import { dbOps } from "../db/index.js";
 import { resolveBaseUrl } from "../utils/base-url.js";
 import { getSetting } from "../utils/settings.js";
@@ -62,12 +62,14 @@ function sanitizeScheduleTime(value) {
 
 // Poll interval can come from DB settings or config. Normalize it before use.
 function sanitizePollSeconds(value, fallback) {
+  const clamp = (seconds) =>
+    Math.min(Math.max(seconds, MIN_AGENT_POLL_SECONDS), MAX_AGENT_POLL_SECONDS);
   const parsed = Number.parseInt(value, 10);
   if (Number.isFinite(parsed) && parsed > 0) {
-    return parsed;
+    return clamp(parsed);
   }
   const fallbackParsed = Number.parseInt(fallback, 10);
-  return Number.isFinite(fallbackParsed) && fallbackParsed > 0 ? fallbackParsed : 15;
+  return Number.isFinite(fallbackParsed) && fallbackParsed > 0 ? clamp(fallbackParsed) : 15;
 }
 
 // Some installations may still be in a migration window. Fail closed here.

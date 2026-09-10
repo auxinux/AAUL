@@ -161,4 +161,12 @@ if (typeof config.agentAutoUpdateEnabled !== "boolean") {
   config.agentAutoUpdateEnabled = true;
 }
 
+// Floor on how often an agent may contact the dashboard. Below ~5s a fleet
+// spends more time being answered than doing work: at 2s the event loop
+// saturates and the dashboard stops responding entirely. Enforced on every
+// path that can set an interval (settings, installer, SET_POLL_INTERVAL) and
+// clamped again by both agents.
+export const MIN_AGENT_POLL_SECONDS = 5;
+export const MAX_AGENT_POLL_SECONDS = 86400;
+
 export default config;

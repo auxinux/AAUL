@@ -1,4 +1,5 @@
 import { validatePackageName, validateSearchQuery } from "./packages-policy.js";
+import { MIN_AGENT_POLL_SECONDS, MAX_AGENT_POLL_SECONDS } from "../config.js";
 
 const COMMANDS_WITHOUT_PAYLOAD = new Set([
   "RUN_NOW",
@@ -79,7 +80,11 @@ export function validateCommandPayload(type, payload = null) {
 
   if (type === "SET_POLL_INTERVAL") {
     const seconds = Number.parseInt(payload?.pollIntervalSeconds, 10);
-    if (!Number.isFinite(seconds) || seconds < 5 || seconds > 86400) {
+    if (
+      !Number.isFinite(seconds) ||
+      seconds < MIN_AGENT_POLL_SECONDS ||
+      seconds > MAX_AGENT_POLL_SECONDS
+    ) {
       return fail("Invalid poll interval");
     }
     return { ok: true, payload: { pollIntervalSeconds: seconds } };

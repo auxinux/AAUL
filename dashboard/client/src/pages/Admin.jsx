@@ -31,6 +31,11 @@ import { useI18n } from "../lib/i18n.js";
 import Modal from "../components/Modal.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 
+// Mirrors MIN/MAX_AGENT_POLL_SECONDS in dashboard/server/config.js — the
+// server rejects anything outside this range, this only spares the round trip.
+const MIN_POLL_SECONDS = 5;
+const MAX_POLL_SECONDS = 86400;
+
 function formatDate(value) {
   if (!value) return "-";
   const date = new Date(value);
@@ -554,6 +559,11 @@ export default function Admin() {
   useEffect(() => { load(); }, []);
 
   const save = async () => {
+    const pollValue = Number.parseInt(defaultPollSeconds, 10);
+    if (!Number.isFinite(pollValue) || pollValue < MIN_POLL_SECONDS || pollValue > MAX_POLL_SECONDS) {
+      setError(t("admin.pollTooShort"));
+      return;
+    }
     setSaving(true); setError(""); setMessage("");
     try {
       await apiFetch("/api/settings", {
@@ -648,6 +658,9 @@ export default function Admin() {
              </label>
              <input
                className="input"
+               type="number"
+               min={MIN_POLL_SECONDS}
+               max={MAX_POLL_SECONDS}
                inputMode="numeric"
                value={defaultPollSeconds}
                onChange={(e) => setDefaultPollSeconds(e.target.value)}

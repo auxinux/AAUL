@@ -163,8 +163,8 @@ func setPollInterval(cfg *config.Config, payload json.RawMessage) Outcome {
 	if err := decode(payload, &body); err != nil {
 		return failed("invalid SET_POLL_INTERVAL payload: %v", err)
 	}
-	if body.PollIntervalSeconds <= 0 {
-		return failed("Invalid poll interval")
+	if body.PollIntervalSeconds < config.MinPollIntervalSeconds {
+		return failed("Invalid poll interval (minimum %ds)", config.MinPollIntervalSeconds)
 	}
 
 	cfg.PollIntervalSeconds = body.PollIntervalSeconds

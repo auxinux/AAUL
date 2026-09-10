@@ -10,6 +10,10 @@ import (
 // DefaultDailyTime is the fallback schedule time, matching the Python agent.
 const DefaultDailyTime = "03:00"
 
+// MinPollIntervalSeconds mirrors the dashboard's floor. A config.json written
+// before that rule existed, or edited by hand, must not hammer the server.
+const MinPollIntervalSeconds = 5
+
 // Schedule is the daily OS-update window pushed by the dashboard.
 type Schedule struct {
 	Enabled   bool   `json:"enabled"`
@@ -60,6 +64,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.PollIntervalSeconds <= 0 {
 		c.PollIntervalSeconds = 60
+	}
+	if c.PollIntervalSeconds < MinPollIntervalSeconds {
+		c.PollIntervalSeconds = MinPollIntervalSeconds
 	}
 }
 

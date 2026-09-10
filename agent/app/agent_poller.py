@@ -26,6 +26,10 @@ from lib.local_web import get_local_web_manager, start_local_server, stop_local_
 from agent_runner import run_update
 
 
+# The dashboard refuses anything shorter, but an old config.json written
+# before that rule (or edited by hand) must not be able to hammer the server.
+MIN_POLL_INTERVAL_SECONDS = 5
+
 _local_web_manager = None
 
 
@@ -110,8 +114,10 @@ def handle_command(config, command):
         elif cmd_type == "SET_POLL_INTERVAL":
             payload = command.get("payload") or {}
             poll_value = int(payload.get("pollIntervalSeconds") or 0)
-            if poll_value <= 0:
-                raise ValueError("Invalid poll interval")
+            if poll_value < MIN_POLL_INTERVAL_SECONDS:
+                raise ValueError(
+                    f"Invalid poll interval (minimum {MIN_POLL_INTERVAL_SECONDS}s)"
+                )
             config["pollIntervalSeconds"] = poll_value
             save_config(config)
             result_payload = {"pollIntervalSeconds": poll_value}
@@ -321,7 +327,7 @@ def main():
         return
 
     config = load_config()
-    interval = int(config.get("pollIntervalSeconds", 60))
+    interval = max(int(config.get("pollIntervalSeconds", 60)), MIN_POLL_INTERVAL_SECONDS)
 
     try:
         manager = get_local_web()

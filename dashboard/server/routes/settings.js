@@ -2,7 +2,7 @@
 // stored in the SQLite database and override config.json values.
 
 import express from "express";
-import config from "../config.js";
+import config, { MIN_AGENT_POLL_SECONDS, MAX_AGENT_POLL_SECONDS } from "../config.js";
 import { requireAdmin, requireSystemAdmin } from "../middleware/auth.js";
 import { dbOps } from "../db/index.js";
 import { getSettings, setSettings } from "../utils/settings.js";
@@ -181,8 +181,14 @@ router.post("/", requireAdmin, requireSystemAdmin, async (req, res) => {
       : String(defaultPollSeconds).trim();
   if (nextPoll) {
     const pollValue = Number.parseInt(nextPoll, 10);
-    if (!Number.isFinite(pollValue) || pollValue <= 0 || pollValue > 86400) {
-      res.status(400).json({ error: "Invalid defaultPollSeconds value" });
+    if (
+      !Number.isFinite(pollValue) ||
+      pollValue < MIN_AGENT_POLL_SECONDS ||
+      pollValue > MAX_AGENT_POLL_SECONDS
+    ) {
+      res.status(400).json({
+        error: `Invalid defaultPollSeconds value (integer ${MIN_AGENT_POLL_SECONDS}..${MAX_AGENT_POLL_SECONDS} expected)`
+      });
       return;
     }
   }
