@@ -1,10 +1,8 @@
 import express from "express";
 import bcrypt from "bcrypt";
 import { dbOps } from "../db/index.js";
-import { requireAdmin } from "../middleware/auth.js";
+import { requireAdmin, requireSystemAdmin } from "../middleware/auth.js";
 import { enrichSession } from "../plugins/plugin-loader.js";
-
-const SYSTEM_CLIENT_ID = "default";
 
 const router = express.Router();
 
@@ -12,18 +10,6 @@ const MIN_PASSWORD_LENGTH = 10;
 
 function isPasswordTooWeak(password) {
   return String(password).length < MIN_PASSWORD_LENGTH;
-}
-
-// AAUL-Cloud: gestion des utilisateurs réservée à l'admin système.
-// requireAdmin enrichit la session avec clientId ; on refuse les admins
-// de tenant (client_id != null et != 'default').
-function requireSystemAdmin(req, res, next) {
-  const clientId = req.session?.user?.clientId ?? null;
-  if (clientId && clientId !== SYSTEM_CLIENT_ID) {
-    res.status(403).json({ error: "System admin access required" });
-    return;
-  }
-  next();
 }
 
 router.get("/", requireAdmin, requireSystemAdmin, async (req, res) => {

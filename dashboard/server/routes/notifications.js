@@ -6,7 +6,7 @@
  * - POST /api/notifications/test   → send a test message ({ channel })
  */
 import express from "express";
-import { requireAdmin } from "../middleware/auth.js";
+import { requireAdmin, requireSystemAdmin } from "../middleware/auth.js";
 import { getSetting, setSetting } from "../utils/settings.js";
 import { dbOps } from "../db/index.js";
 import { getActorUserId, recordAuditEvent } from "../utils/audit.js";
@@ -59,13 +59,13 @@ async function getMonitoring() {
   };
 }
 
-router.get("/", requireAdmin, async (req, res) => {
+router.get("/", requireAdmin, requireSystemAdmin, async (req, res) => {
   const notifications = await getNotificationConfigPublic();
   const monitoring = await getMonitoring();
   res.json({ ok: true, notifications, monitoring });
 });
 
-router.post("/", requireAdmin, async (req, res) => {
+router.post("/", requireAdmin, requireSystemAdmin, async (req, res) => {
   const { notifications, monitoring } = req.body || {};
 
   if (notifications) {
@@ -112,7 +112,7 @@ router.post("/", requireAdmin, async (req, res) => {
   res.json({ ok: true, message: "Notification settings saved." });
 });
 
-router.post("/test", requireAdmin, async (req, res) => {
+router.post("/test", requireAdmin, requireSystemAdmin, async (req, res) => {
   const channel = req.body?.channel || "both";
   if (!["email", "sms", "both"].includes(channel)) {
     res.status(400).json({ error: "Invalid channel" });
@@ -137,7 +137,7 @@ router.post("/test", requireAdmin, async (req, res) => {
   });
 });
 
-router.get("/history", requireAdmin, async (req, res) => {
+router.get("/history", requireAdmin, requireSystemAdmin, async (req, res) => {
   const limit = Math.min(Number.parseInt(req.query.limit, 10) || 100, 500);
   const rows = await dbOps.all(
     "SELECT * FROM notification_events ORDER BY created_at DESC LIMIT ?",

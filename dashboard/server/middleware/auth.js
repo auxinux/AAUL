@@ -171,6 +171,23 @@ export async function requireAdmin(req, res, next) {
   next();
 }
 
+// AAUL-Cloud: convention partagée par tout plugin d'isolation multi-tenant —
+// enrichSession() peut poser `clientId` sur la session (null/"default" =
+// admin système, autre valeur = admin d'un tenant). Les routes qui touchent
+// une ressource globale à l'instance (config serveur, gestion des plugins,
+// notifications, gestion des comptes) doivent rester hors de portée d'un
+// admin de tenant, qu'un plugin de ce type soit installé ou non.
+export const SYSTEM_CLIENT_ID = "default";
+
+export function requireSystemAdmin(req, res, next) {
+  const clientId = req.session?.user?.clientId ?? null;
+  if (clientId && clientId !== SYSTEM_CLIENT_ID) {
+    res.status(403).json({ error: "System admin access required" });
+    return;
+  }
+  next();
+}
+
 export async function attachUser(req, res, next) {
   if (req.session && req.session.userId) {
     const user = await dbOps.get(

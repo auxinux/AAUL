@@ -8,7 +8,7 @@ import path from "path";
 import AdmZip from "adm-zip";
 import multer from "multer";
 import { fileURLToPath } from "url";
-import { requireAdmin } from "../middleware/auth.js";
+import { requireAdmin, requireSystemAdmin } from "../middleware/auth.js";
 import pluginLoader from "../plugins/plugin-loader.js";
 
 const router = express.Router();
@@ -50,7 +50,7 @@ function isSafeZipEntry(entry) {
  * GET /api/plugins
  * List all discovered plugins with their status
  */
-router.get("/", requireAdmin, async (req, res) => {
+router.get("/", requireAdmin, requireSystemAdmin, async (req, res) => {
   try {
     const plugins = await pluginLoader.getAllPlugins();
     res.json({ ok: true, plugins });
@@ -64,7 +64,7 @@ router.get("/", requireAdmin, async (req, res) => {
  * POST /api/plugins/:name/enable
  * Enable a plugin
  */
-router.post("/:name/enable", requireAdmin, async (req, res) => {
+router.post("/:name/enable", requireAdmin, requireSystemAdmin, async (req, res) => {
   const { name } = req.params;
   
   try {
@@ -88,7 +88,7 @@ router.post("/:name/enable", requireAdmin, async (req, res) => {
  * POST /api/plugins/:name/disable
  * Disable a plugin
  */
-router.post("/:name/disable", requireAdmin, async (req, res) => {
+router.post("/:name/disable", requireAdmin, requireSystemAdmin, async (req, res) => {
   const { name } = req.params;
   
   try {
@@ -111,7 +111,7 @@ router.post("/:name/disable", requireAdmin, async (req, res) => {
  * POST /api/plugins/install
  * Install a plugin from a .pg package (zip)
  */
-router.post("/install", requireAdmin, upload.single("file"), async (req, res) => {
+router.post("/install", requireAdmin, requireSystemAdmin, upload.single("file"), async (req, res) => {
   if (!req.file) {
     res.status(400).json({ error: "Missing plugin file" });
     return;
@@ -196,7 +196,7 @@ router.post("/install", requireAdmin, upload.single("file"), async (req, res) =>
  * DELETE /api/plugins/:name
  * Delete a plugin (non-system only)
  */
-router.delete("/:name", requireAdmin, async (req, res) => {
+router.delete("/:name", requireAdmin, requireSystemAdmin, async (req, res) => {
   const { name } = req.params;
 
   try {
@@ -231,7 +231,7 @@ router.delete("/:name", requireAdmin, async (req, res) => {
  * GET /api/plugins/ui/:slot
  * Get UI components registered for a specific slot
  */
-router.get("/ui/:slot", requireAdmin, (req, res) => {
+router.get("/ui/:slot", requireAdmin, requireSystemAdmin, (req, res) => {
   const { slot } = req.params;
   const components = pluginLoader.getUIComponents(slot);
   res.json({ ok: true, components });
@@ -241,7 +241,7 @@ router.get("/ui/:slot", requireAdmin, (req, res) => {
  * GET /api/plugins/:name
  * Get details about a specific plugin
  */
-router.get("/:name", requireAdmin, async (req, res) => {
+router.get("/:name", requireAdmin, requireSystemAdmin, async (req, res) => {
   const { name } = req.params;
   
   try {

@@ -3,7 +3,7 @@
 
 import express from "express";
 import config from "../config.js";
-import { requireAdmin } from "../middleware/auth.js";
+import { requireAdmin, requireSystemAdmin } from "../middleware/auth.js";
 import { dbOps } from "../db/index.js";
 import { getSettings, setSettings } from "../utils/settings.js";
 import { resolveBaseUrl } from "../utils/base-url.js";
@@ -43,7 +43,7 @@ function boundedInt(value, { min, max, fallback, label }) {
  * GET /api/settings
  * Retrieve current settings merged with defaults from config
  */
-router.get("/", requireAdmin, async (req, res) => {
+router.get("/", requireAdmin, requireSystemAdmin, async (req, res) => {
   const settings = await getSettings();
   const installUrl = await resolveBaseUrl();
   res.json({
@@ -86,7 +86,7 @@ router.get("/", requireAdmin, async (req, res) => {
  * Update settings
  * Note: SSL and port changes require server restart to take effect
  */
-router.post("/", requireAdmin, async (req, res) => {
+router.post("/", requireAdmin, requireSystemAdmin, async (req, res) => {
   const {
     publicIp,
     defaultPollSeconds,

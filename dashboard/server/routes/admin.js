@@ -3,7 +3,7 @@ import os from "os";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { requireAdmin } from "../middleware/auth.js";
+import { requireAdmin, requireSystemAdmin } from "../middleware/auth.js";
 import { dbOps } from "../db/index.js";
 import { getActorUserId, recordAuditEvent } from "../utils/audit.js";
 
@@ -14,7 +14,7 @@ import { getReleaseNotes, getUpdateStatus, runUpdateCheck } from "../utils/updat
 
 const router = express.Router();
 
-router.get("/network-ips", requireAdmin, (req, res) => {
+router.get("/network-ips", requireAdmin, requireSystemAdmin, (req, res) => {
   const interfaces = os.networkInterfaces();
   const ips = [];
 
@@ -42,7 +42,7 @@ router.get("/network-ips", requireAdmin, (req, res) => {
 });
 
 // Get current server configuration
-router.get("/config", requireAdmin, async (req, res) => {
+router.get("/config", requireAdmin, requireSystemAdmin, async (req, res) => {
   try {
     const configData = JSON.parse(fs.readFileSync(configPath, "utf8"));
     res.json({
@@ -70,7 +70,7 @@ router.get("/config", requireAdmin, async (req, res) => {
 });
 
 // Update HTTP/HTTPS configuration
-router.post("/config/server", requireAdmin, async (req, res) => {
+router.post("/config/server", requireAdmin, requireSystemAdmin, async (req, res) => {
   try {
     const { http, https, defaultApiProtocol } = req.body;
     
@@ -134,7 +134,7 @@ router.post("/config/server", requireAdmin, async (req, res) => {
 });
 
 // Check if SSL certificates exist
-router.get("/config/ssl-status", requireAdmin, async (req, res) => {
+router.get("/config/ssl-status", requireAdmin, requireSystemAdmin, async (req, res) => {
   try {
     const configData = JSON.parse(fs.readFileSync(configPath, "utf8"));
     const keyPath = path.join(__dirname, "..", "..", configData.https?.keyPath || "./ssl/server.key");
@@ -154,7 +154,7 @@ router.get("/config/ssl-status", requireAdmin, async (req, res) => {
 });
 
 // Restart server endpoint
-router.post("/restart", requireAdmin, async (req, res) => {
+router.post("/restart", requireAdmin, requireSystemAdmin, async (req, res) => {
   await recordAuditEvent({
     actorUserId: getActorUserId(req),
     action: "admin.restart_requested",
@@ -169,7 +169,7 @@ router.post("/restart", requireAdmin, async (req, res) => {
   }, 500);
 });
 
-router.get("/audit", requireAdmin, async (req, res) => {
+router.get("/audit", requireAdmin, requireSystemAdmin, async (req, res) => {
   const limit = Math.min(Number.parseInt(req.query.limit, 10) || 100, 500);
   const rows = await dbOps.all(
     `SELECT
@@ -200,7 +200,7 @@ router.get("/audit", requireAdmin, async (req, res) => {
   });
 });
 
-router.get("/health", requireAdmin, async (req, res) => {
+router.get("/health", requireAdmin, requireSystemAdmin, async (req, res) => {
   const [agentCounts, commandCounts, notificationCounts, latestAudit] = await Promise.all([
     dbOps.get(
       `SELECT
@@ -250,14 +250,14 @@ router.get("/health", requireAdmin, async (req, res) => {
 
 // Read the cached result. Never performs a network call, so the dashboard can
 // render the badge instantly on every page load.
-router.get("/update-check", requireAdmin, (req, res) => {
+router.get("/update-check", requireAdmin, requireSystemAdmin, (req, res) => {
   res.json({ ok: true, status: getUpdateStatus() });
 });
 
 // Release notes for both languages. Served from the cached copy of the last
 // successful fetch, falling back to the RELEASE.md shipped with this install —
 // so an offline dashboard still shows its notes.
-router.get("/release-notes", requireAdmin, (req, res) => {
+router.get("/release-notes", requireAdmin, requireSystemAdmin, (req, res) => {
   const { notes, source, version } = getReleaseNotes();
   res.json({ ok: true, notes, source, version });
 });
@@ -267,7 +267,7 @@ router.get("/release-notes", requireAdmin, (req, res) => {
 const FORCE_MIN_INTERVAL_MS = 10000;
 let lastForcedCheckAt = 0;
 
-router.post("/update-check", requireAdmin, async (req, res) => {
+router.post("/update-check", requireAdmin, requireSystemAdmin, async (req, res) => {
   const now = Date.now();
   if (now - lastForcedCheckAt < FORCE_MIN_INTERVAL_MS) {
     res.json({ ok: true, throttled: true, status: getUpdateStatus() });
