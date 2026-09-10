@@ -289,6 +289,21 @@ router.get("/", requireAdmin, async (req, res) => {
         })(),
         groupId: agent.group_id || null,
         position: agent.position ?? null,
+        // Summary only — the fleet table shows a health dot, the detail page
+        // fetches the full snapshot.
+        antivirus: (() => {
+          try {
+            const parsed = JSON.parse(agent.antivirus_json || "null");
+            if (!parsed) return null;
+            return {
+              product: parsed.product || null,
+              installed: Boolean(parsed.installed),
+              healthy: Boolean(parsed.healthy),
+              threatsFound: Number(parsed.threatsFound) || 0,
+              checkedAt: agent.antivirus_checked_at || null
+            };
+          } catch { return null; }
+        })(),
         metrics: summarizeMetrics(agent.metrics_json, agent.metrics_updated_at),
         securityUpdatesAvailable: (() => {
           try {
@@ -654,6 +669,11 @@ router.get("/:id", requireAdmin, async (req, res) => {
         catch { return null; }
       })(),
       updatesCheckedAt: agent.updates_checked_at || null,
+      antivirus: (() => {
+        try { return JSON.parse(agent.antivirus_json || "null"); }
+        catch { return null; }
+      })(),
+      antivirusCheckedAt: agent.antivirus_checked_at || null,
       schedule: {
         enabled: Boolean(agent.schedule_enabled),
         dailyTime: agent.schedule_daily_time
@@ -1317,6 +1337,32 @@ router.post("/:id/packages/update", requireAdmin, async (req, res) => {
     clean.push(check.name);
   }
   const result = await createCommand(req.params.id, "UPDATE_PACKAGES", { names: clean }, req);
+  if (result.error) {
+    res.status(result.status).json({ error: result.error });
+    return;
+  }
+  res.json({ ok: true, commandId: result.id });
+});
+
+// Read-only: always allowed (reading antivirus health).
+router.post("/:id/antivirus/status", requireAdmin, async (req, res) => {
+  const result = await createCommand(req.params.id, "ANTIVIRUS_STATUS", null, req);
+  if (result.error) {
+    res.status(result.status).json({ error: result.error });
+    return;
+  }
+  res.json({ ok: true, commandId: result.id });
+});
+
+// Starting a scan only reads files — it never installs or removes anything —
+// so it is not behind the package opt-in. It is expensive, though: a full scan
+// runs for hours, which is why the poll route gives it a longer stale window.
+router.post("/:id/antivirus/scan", requireAdmin, async (req, res) => {
+  const payload = { scanType: req.body?.scanType || "quick" };
+  if (req.body?.path) {
+    payload.path = req.body.path;
+  }
+  const result = await createCommand(req.params.id, "ANTIVIRUS_SCAN", payload, req);
   if (result.error) {
     res.status(result.status).json({ error: result.error });
     return;

@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"aaul-agent/internal/antivirus"
 	"aaul-agent/internal/api"
 	"aaul-agent/internal/config"
 	"aaul-agent/internal/logs"
@@ -90,6 +91,10 @@ func Handle(client *api.Client, cfg *config.Config, command Command) (outcome Ou
 		return wrap(packages.CheckUpdates())
 	case "UPDATE_PACKAGES":
 		return updatePackages(command.Payload)
+	case "ANTIVIRUS_STATUS":
+		return wrap(antivirus.Status())
+	case "ANTIVIRUS_SCAN":
+		return antivirusScan(command.Payload)
 	default:
 		return failed("Unknown command %s", command.Type)
 	}
@@ -154,6 +159,18 @@ func updateAgent(client *api.Client) Outcome {
 	outcome := done(map[string]any{"version": newVersion})
 	outcome.Restart = true
 	return outcome
+}
+
+// A scan that finds something still succeeded: the detection is the result,
+// not an agent failure, so only a scan that could not run reports ERROR.
+func antivirusScan(payload json.RawMessage) Outcome {
+	var body struct {
+		ScanType string `json:"scanType"`
+	}
+	if err := decode(payload, &body); err != nil {
+		return failed("invalid ANTIVIRUS_SCAN payload: %v", err)
+	}
+	return wrap(antivirus.Scan(body.ScanType))
 }
 
 func setPollInterval(cfg *config.Config, payload json.RawMessage) Outcome {

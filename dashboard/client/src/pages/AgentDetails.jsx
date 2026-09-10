@@ -11,6 +11,8 @@ import {
   Monitor,
   Settings,
   Shield,
+  ShieldCheck,
+  AlertTriangle,
   Zap,
   Globe,
   Clock,
@@ -112,6 +114,14 @@ export default function AgentDetails() {
   const [monitorEnabled, setMonitorEnabled] = useState(true);
   const [monitorSaving, setMonitorSaving] = useState(false);
 
+  // Antivirus health. The snapshot comes with the agent record; a check or a
+  // scan replaces it with the fresh command result.
+  const [antivirus, setAntivirus] = useState(null);
+  const [antivirusCheckedAt, setAntivirusCheckedAt] = useState(null);
+  const [antivirusBusy, setAntivirusBusy] = useState("");
+  const [antivirusError, setAntivirusError] = useState("");
+  const [antivirusMessage, setAntivirusMessage] = useState("");
+
   const saveMonitor = async (enabled) => {
     setMonitorSaving(true);
     setMonitorEnabled(enabled);
@@ -161,6 +171,10 @@ export default function AgentDetails() {
       if (data.agent?.localWeb) {
         setLocalWebEnabled(data.agent.localWeb.enabled);
         setLocalWebPort(data.agent.localWeb.port || 8180);
+      }
+      if (data.agent?.antivirus !== undefined) {
+        setAntivirus(data.agent.antivirus);
+        setAntivirusCheckedAt(data.agent.antivirusCheckedAt || null);
       }
       if (data.agent && data.agent.monitorEnabled !== undefined) {
         setMonitorEnabled(data.agent.monitorEnabled);
@@ -239,6 +253,64 @@ export default function AgentDetails() {
     } finally {
       setWaiting(false);
       setRefreshing(false);
+    }
+  };
+
+  const checkAntivirus = async () => {
+    setAntivirusBusy("status");
+    setAntivirusError("");
+    setAntivirusMessage("");
+    try {
+      const result = await apiFetch(`/api/agents/${id}/antivirus/status`, { method: "POST" });
+      const command = await pollCommand(result.commandId);
+      if (command.status === "ERROR") {
+        setAntivirusError(command.errorMessage || t("errors.commandFailed"));
+        return;
+      }
+      setAntivirus(command.result || null);
+      setAntivirusCheckedAt(new Date().toISOString());
+    } catch (err) {
+      setAntivirusError(err.message || t("errors.commandFailed"));
+    } finally {
+      setAntivirusBusy("");
+    }
+  };
+
+  const runAntivirusScan = async (scanType) => {
+    setAntivirusBusy(scanType);
+    setAntivirusError("");
+    setAntivirusMessage("");
+    try {
+      const result = await apiFetch(`/api/agents/${id}/antivirus/scan`, {
+        method: "POST",
+        body: JSON.stringify({ scanType })
+      });
+      let command;
+      try {
+        command = await pollCommand(result.commandId);
+      } catch {
+        // A full scan runs far longer than the polling budget. It is still
+        // going on the machine, and loadAgent() will pick up the stored
+        // result — so this is information, not a failure.
+        setAntivirusMessage(t("antivirus.scanStillRunning"));
+        return;
+      }
+      if (command.status === "ERROR") {
+        setAntivirusError(command.errorMessage || t("errors.commandFailed"));
+        return;
+      }
+      const scan = command.result || {};
+      const found = Number(scan.threatsFound) || 0;
+      setAntivirusMessage(
+        found > 0 ? t("antivirus.scanInfected", { n: found }) : t("antivirus.scanClean")
+      );
+      // The verdict belongs to the agent: re-read it rather than patching the
+      // snapshot here from the scan alone.
+      await checkAntivirus();
+    } catch (err) {
+      setAntivirusError(err.message || t("errors.commandFailed"));
+    } finally {
+      setAntivirusBusy("");
     }
   };
 
@@ -707,6 +779,161 @@ export default function AgentDetails() {
               <p className="text-sm text-slate-500 italic">{t("details.noInfo")}</p>
             )}
           </button>
+
+          {/* Antivirus health */}
+          <div className="card !p-6 space-y-5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 text-emerald-400">
+                <ShieldCheck size={16} />
+                <h3 className="text-[10px] font-bold uppercase tracking-[0.2em]">{t("antivirus.title")}</h3>
+              </div>
+              <button
+                type="button"
+                className="btn-ghost !px-3 !py-1.5 text-xs"
+                onClick={checkAntivirus}
+                disabled={Boolean(antivirusBusy)}
+              >
+                <RefreshCw size={12} className={antivirusBusy === "status" ? "animate-spin" : ""} />
+                {antivirusBusy === "status" ? t("antivirus.checking") : t("antivirus.check")}
+              </button>
+            </div>
+
+            {!antivirus ? (
+              <p className="text-xs text-slate-500 leading-relaxed">{t("antivirus.neverChecked")}</p>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <span
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider ${
+                      !antivirus.installed
+                        ? "bg-red-500/10 text-red-400"
+                        : antivirus.healthy
+                        ? "bg-emerald-500/10 text-emerald-400"
+                        : "bg-amber-500/10 text-amber-400"
+                    }`}
+                  >
+                    {!antivirus.installed
+                      ? t("antivirus.notInstalled")
+                      : antivirus.healthy
+                      ? t("antivirus.healthy")
+                      : t("antivirus.unhealthy")}
+                  </span>
+                  {antivirus.product && (
+                    <span className="text-sm font-bold text-white">{antivirus.product}</span>
+                  )}
+                  {antivirus.version && (
+                    <span className="text-xs text-slate-500 font-mono">{antivirus.version}</span>
+                  )}
+                </div>
+
+                {Array.isArray(antivirus.issues) && antivirus.issues.length > 0 && (
+                  <ul className="space-y-1.5">
+                    {antivirus.issues.map((issue) => (
+                      <li key={issue} className="flex items-start gap-2 text-xs text-amber-400/90">
+                        <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+                        <span>{issue}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {antivirus.installed && (
+                  <div className="space-y-2 pt-1">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-500">{t("antivirus.realtime")}</span>
+                      <span className={antivirus.realtimeEnabled ? "text-emerald-400" : "text-amber-400"}>
+                        {antivirus.realtimeEnabled ? t("antivirus.realtimeOn") : t("antivirus.realtimeOff")}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-500">{t("antivirus.signatures")}</span>
+                      <span className={antivirus.upToDate ? "text-emerald-400" : "text-amber-400"}>
+                        {antivirus.upToDate ? t("antivirus.upToDate") : t("antivirus.outdated")}
+                        {antivirus.signatureAgeDays !== null && antivirus.signatureAgeDays !== undefined && (
+                          <span className="text-slate-500">
+                            {" · "}
+                            {t("antivirus.signatureAge", { n: antivirus.signatureAgeDays })}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-500">{t("antivirus.lastScan")}</span>
+                      <span className="text-slate-300">
+                        {antivirus.lastScanAt
+                          ? `${formatDate(antivirus.lastScanAt, lang)}${antivirus.lastScanType ? ` (${antivirus.lastScanType})` : ""}`
+                          : t("antivirus.lastScanNever")}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-500">{t("antivirus.threats")}</span>
+                      <span className={antivirus.threatsFound > 0 ? "text-red-400 font-bold" : "text-emerald-400"}>
+                        {antivirus.threatsFound > 0
+                          ? t("antivirus.threatsFound", { n: antivirus.threatsFound })
+                          : t("antivirus.threatsNone")}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {Array.isArray(antivirus.threats) && antivirus.threats.length > 0 && (
+                  <div className="space-y-1.5 pt-1">
+                    {antivirus.threats.slice(0, 10).map((threat, index) => (
+                      <div
+                        key={`${threat.name}-${index}`}
+                        className="p-2.5 rounded-xl bg-red-500/[0.06] border border-red-500/10 space-y-1"
+                      >
+                        <div className="text-xs font-bold text-red-300 break-all">{threat.name}</div>
+                        {threat.path && (
+                          <div className="text-[10px] text-slate-500 font-mono break-all">{threat.path}</div>
+                        )}
+                        <div className="text-[10px] text-slate-500 uppercase tracking-wider">
+                          {[threat.severity, threat.action].filter(Boolean).join(" · ")}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {antivirus?.installed && (
+              <div className="space-y-2 pt-1">
+                {antivirus.scanSupported ? (
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      className="btn-secondary !py-2 text-xs flex-1"
+                      onClick={() => runAntivirusScan("quick")}
+                      disabled={Boolean(antivirusBusy)}
+                    >
+                      {antivirusBusy === "quick" ? t("antivirus.scanning") : t("antivirus.quickScan")}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-secondary !py-2 text-xs flex-1"
+                      onClick={() => runAntivirusScan("full")}
+                      disabled={Boolean(antivirusBusy)}
+                    >
+                      {antivirusBusy === "full" ? t("antivirus.scanning") : t("antivirus.fullScan")}
+                    </button>
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-slate-500 leading-relaxed">{t("antivirus.scanSupportedNo")}</p>
+                )}
+              </div>
+            )}
+
+            {antivirusMessage && <p className="text-xs text-brand-300">{antivirusMessage}</p>}
+            {antivirusError && (
+              <p className="text-xs text-red-400">{t("antivirus.failed", { error: antivirusError })}</p>
+            )}
+            {antivirusCheckedAt && (
+              <p className="text-[10px] text-slate-600">
+                {t("antivirus.checkedAt", { time: formatDate(antivirusCheckedAt, lang) })}
+              </p>
+            )}
+          </div>
 
           {/* Monitoring Settings */}
           <div className="card !p-6 space-y-6">

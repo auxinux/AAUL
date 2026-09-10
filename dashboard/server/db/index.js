@@ -181,6 +181,15 @@ export async function initDb() {
   if (!agentColumnNames.has("packages_json")) {
     await run("ALTER TABLE agents ADD COLUMN packages_json TEXT");
   }
+  // Antivirus health from ANTIVIRUS_STATUS (JSON: the agent's status contract —
+  // see agent/app/lib/antivirus.py). Refreshed on demand only: reading it costs
+  // a PowerShell launch on Windows, far too expensive for the poll path.
+  if (!agentColumnNames.has("antivirus_json")) {
+    await run("ALTER TABLE agents ADD COLUMN antivirus_json TEXT");
+  }
+  if (!agentColumnNames.has("antivirus_checked_at")) {
+    await run("ALTER TABLE agents ADD COLUMN antivirus_checked_at TEXT");
+  }
   // Live vital signs (CPU / memory / disk) sent with every poll. Distinct from
   // last_info_json, which is the expensive inventory refreshed on demand only.
   if (!agentColumnNames.has("metrics_json")) {

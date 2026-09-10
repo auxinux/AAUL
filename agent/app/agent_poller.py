@@ -163,6 +163,15 @@ def handle_command(config, command):
             if not result_payload.get("success"):
                 status = "ERROR"
                 error_message = "Désinstallation échouée"
+        elif cmd_type == "ANTIVIRUS_STATUS":
+            from lib.antivirus import get_status
+            result_payload = get_status()
+        elif cmd_type == "ANTIVIRUS_SCAN":
+            from lib.antivirus import run_scan
+            payload = command.get("payload") or {}
+            # A scan that finds something still succeeded: the detection is the
+            # result, not an agent failure.
+            result_payload = run_scan(payload.get("scanType"), payload.get("path"))
         elif cmd_type == "CHECK_UPDATES":
             from lib.packages import check_updates
             result_payload = check_updates()

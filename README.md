@@ -23,6 +23,7 @@ The dashboard can:
 - show live CPU / memory / disk usage per host, with 24-hour history
 - aggregate pending updates across the whole fleet and flag the security ones
 - push a log-retention policy that every agent enforces locally
+- report antivirus health per host and start a remote scan
 - build and serve the latest agent bundle used for agent self-update
 
 The agent can:
@@ -32,6 +33,8 @@ The agent can:
 - report lightweight vital signs (CPU, memory, disk, load) on every check-in
 - apply operating system updates using the native package manager
 - report which pending updates come from a security channel
+- report antivirus health (product, real-time protection, signature freshness,
+  last scan, detected threats) and run a scan on demand
 - prune its own log directory according to the dashboard's retention policy
 - update itself from the bundle exposed by the dashboard
 - run as a background service on each supported platform
@@ -42,6 +45,7 @@ The agent can:
 agent/
   app/                    Python agent runtime (Linux, macOS)
   app/lib/metrics.py      Vital signs collected on every check-in
+  app/lib/antivirus.py    Antivirus health and on-demand scans (ClamAV)
   app/lib/logs.py         Log listing, reading and retention
   systemd/                Linux service templates
   windows/                Go agent for Windows — one static binary, no runtime

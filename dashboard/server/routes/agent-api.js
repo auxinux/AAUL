@@ -13,6 +13,45 @@ import { validateCommandPayload } from "../utils/command-policy.js";
 
 const router = express.Router();
 
+// Merge a finished scan into the stored antivirus snapshot. The scan itself
+// knows what it found; everything else (product, signatures, real-time state)
+// comes from the last ANTIVIRUS_STATUS and must survive untouched.
+async function mergeAntivirusScan(agentId, scan, now) {
+  const row = await dbOps.get("SELECT antivirus_json FROM agents WHERE id = ?", [agentId]);
+  let snapshot = null;
+  try {
+    snapshot = JSON.parse(row?.antivirus_json || "null");
+  } catch {
+    snapshot = null;
+  }
+  if (!snapshot || typeof snapshot !== "object") {
+    // No status was ever collected — keep the scan alone rather than inventing
+    // health fields the agent never reported.
+    snapshot = {};
+  }
+
+  const threatCount = Number(scan.threatsFound) || 0;
+  const merged = {
+    ...snapshot,
+    lastScanAt: scan.finishedAt || now,
+    lastScanType: scan.scanType || null,
+    lastScanThreats: threatCount,
+    lastScanFilesScanned: scan.filesScanned ?? null,
+    threatsFound: threatCount,
+    threats: Array.isArray(scan.threats) ? scan.threats : []
+  };
+  // The agent owns the health verdict; the only thing a scan can change about
+  // it is to make it worse. `issues` is left as the agent last wrote it and is
+  // rewritten wholesale by the next ANTIVIRUS_STATUS.
+  if (threatCount > 0) {
+    merged.healthy = false;
+  }
+  await dbOps.run(
+    "UPDATE agents SET antivirus_json = ?, antivirus_checked_at = ? WHERE id = ?",
+    [JSON.stringify(merged), now, agentId]
+  );
+}
+
 // Sign every JSON response to the agent so that clients which require signed
 // responses (HMAC over the raw body keyed by the agent token) accept them.
 // Agents that do not check these headers simply ignore them. This is applied
@@ -382,13 +421,18 @@ router.post("/poll", requireAgentAuth, async (req, res) => {
   // it has been stuck well beyond any plausible execution time, to avoid killing
   // a command that is still legitimately running.
   const STALE_COMMAND_MS = 30 * 60 * 1000;
+  // A full antivirus scan legitimately runs for hours. Failing it at 30 minutes
+  // would report a timeout on a machine that is still busy scanning.
+  const STALE_ANTIVIRUS_SCAN_MS = 8 * 60 * 60 * 1000;
   const inProgress = await dbOps.get(
     "SELECT id, type, updated_at FROM commands WHERE agent_id = ? AND status = 'IN_PROGRESS' ORDER BY updated_at DESC LIMIT 1",
     [req.agent.id]
   );
   if (inProgress) {
     const startedAt = Date.parse(inProgress.updated_at);
-    const isStale = Number.isFinite(startedAt) && Date.now() - startedAt > STALE_COMMAND_MS;
+    const staleAfter =
+      inProgress.type === "ANTIVIRUS_SCAN" ? STALE_ANTIVIRUS_SCAN_MS : STALE_COMMAND_MS;
+    const isStale = Number.isFinite(startedAt) && Date.now() - startedAt > staleAfter;
     if (isStale) {
       const updatedAt = new Date().toISOString();
       await dbOps.run(
@@ -587,6 +631,19 @@ router.post("/command-result", requireAgentAuth, async (req, res) => {
       JSON.stringify(body.result),
       req.agent.id
     ]);
+    broadcastSSE("agent:update", { agentId: req.agent.id });
+  }
+  if (command.type === "ANTIVIRUS_STATUS" && finalStatus !== "ERROR" && body.result) {
+    await dbOps.run(
+      "UPDATE agents SET antivirus_json = ?, antivirus_checked_at = ? WHERE id = ?",
+      [JSON.stringify(body.result), now, req.agent.id]
+    );
+    broadcastSSE("agent:update", { agentId: req.agent.id });
+  }
+  if (command.type === "ANTIVIRUS_SCAN" && finalStatus !== "ERROR" && body.result) {
+    // Fold the scan into the stored health snapshot so the fleet view reflects
+    // it immediately, instead of waiting for the next status refresh.
+    await mergeAntivirusScan(req.agent.id, body.result, now);
     broadcastSSE("agent:update", { agentId: req.agent.id });
   }
   if ((command.type === "UPDATE_PACKAGES" || command.type === "RUN_NOW") && finalStatus !== "ERROR") {

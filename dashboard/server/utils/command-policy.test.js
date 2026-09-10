@@ -20,5 +20,17 @@ assert.equal(validateCommandPayload("PACKAGE_INSTALL", { name: "curl;rm -rf /" }
 assert.equal(validateCommandPayload("PACKAGE_REMOVE", { name: "systemd" }).ok, false);
 assert.equal(validateCommandPayload("UPDATE_PACKAGES", { names: ["curl", "git"] }).ok, true);
 assert.equal(validateCommandPayload("UPDATE_PACKAGES", { names: ["curl", "../bad"] }).ok, false);
+assert.equal(validateCommandPayload("ANTIVIRUS_STATUS").ok, true);
+assert.equal(validateCommandPayload("ANTIVIRUS_STATUS", { scanType: "full" }).ok, false);
+assert.deepEqual(validateCommandPayload("ANTIVIRUS_SCAN", { scanType: "FULL" }), {
+  ok: true,
+  payload: { scanType: "full" }
+});
+assert.equal(validateCommandPayload("ANTIVIRUS_SCAN").ok, true);
+assert.equal(validateCommandPayload("ANTIVIRUS_SCAN", { scanType: "deep" }).ok, false);
+assert.equal(validateCommandPayload("ANTIVIRUS_SCAN", { scanType: "quick", path: "/home/u" }).ok, true);
+assert.equal(validateCommandPayload("ANTIVIRUS_SCAN", { scanType: "quick", path: "/home/../etc" }).ok, false);
+assert.equal(validateCommandPayload("ANTIVIRUS_SCAN", { scanType: "quick", path: "/tmp; rm -rf /" }).ok, false);
+assert.equal(validateCommandPayload("ANTIVIRUS_SCAN", { scanType: "quick", path: "relative" }).ok, false);
 
 console.log("command-policy tests passed");

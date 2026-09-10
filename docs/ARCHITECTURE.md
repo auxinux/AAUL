@@ -90,6 +90,9 @@ Important agent libraries:
 - `agent/app/lib/metrics.py`
   Lightweight vital signs (CPU, memory, disk, load) sent on every poll.
   Deliberately separate from `system_info.py`: cheap enough for a heartbeat.
+- `agent/app/lib/antivirus.py`
+  Antivirus health and on-demand scans. ClamAV on Linux; on macOS it falls back
+  to XProtect, which reports signature freshness but cannot be asked to scan.
 - `agent/app/lib/logs.py`
   Log listing, reading, and retention (age + total size limits).
 - `agent/app/lib/systemd.py`
@@ -130,6 +133,11 @@ Important packages:
   winget upgrades plus Windows Update through its COM API. The only place the
   agent still calls PowerShell — Windows Update has no usable command line, and
   PowerShell ships with Windows.
+- `internal/antivirus/`
+  Windows Defender health and scans, plus the Security Center registry so a
+  third-party suite that switches Defender off is still reported instead of
+  showing up as "no antivirus". The mapping and health verdict live outside the
+  windows build tag, so they are unit-tested on any host.
 - `internal/service/`
   Service registration, recovery actions, restart, PATH entry, self-removal.
 - `internal/selfupdate/`

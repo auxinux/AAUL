@@ -7,14 +7,16 @@ const COMMANDS_WITHOUT_PAYLOAD = new Set([
   "FETCH_INFO",
   "LIST_LOGS",
   "CHECK_UPDATES",
-  "PACKAGES_LIST"
+  "PACKAGES_LIST",
+  "ANTIVIRUS_STATUS"
 ]);
 
 export const GROUP_COMMAND_TYPES = new Set([
   "RUN_NOW",
   "CHECK_UPDATES",
   "FETCH_INFO",
-  "UPDATE_AGENT"
+  "UPDATE_AGENT",
+  "ANTIVIRUS_STATUS"
 ]);
 
 export const RETRYABLE_COMMAND_TYPES = new Set([
@@ -29,7 +31,8 @@ export const RETRYABLE_COMMAND_TYPES = new Set([
   "PACKAGE_INSTALL",
   "PACKAGE_REMOVE",
   "UPDATE_PACKAGES",
-  "PRUNE_LOGS"
+  "PRUNE_LOGS",
+  "ANTIVIRUS_STATUS"
 ]);
 
 function fail(error) {
@@ -118,6 +121,26 @@ export function validateCommandPayload(type, payload = null) {
     }
     if (Object.keys(clean).length === 0) {
       return fail("PRUNE_LOGS requires retentionDays and/or maxTotalMb");
+    }
+    return { ok: true, payload: clean };
+  }
+
+  // A scan is deliberately not retryable: it is expensive, and a silent replay
+  // could pin a machine at full CPU for hours.
+  if (type === "ANTIVIRUS_SCAN") {
+    const scanType = String(payload?.scanType || "quick").trim().toLowerCase();
+    if (scanType !== "quick" && scanType !== "full") {
+      return fail("Invalid scanType (quick or full)");
+    }
+    const clean = { scanType };
+    const path = payload?.path === undefined ? "" : String(payload.path).trim();
+    if (path) {
+      // Absolute POSIX path only, no traversal, no shell metacharacter — the
+      // agent validates again before it ever reaches a command line.
+      if (!/^\/[A-Za-z0-9._/-]{0,255}$/.test(path) || path.includes("..")) {
+        return fail("Invalid scan path");
+      }
+      clean.path = path;
     }
     return { ok: true, payload: clean };
   }
