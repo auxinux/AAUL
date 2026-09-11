@@ -121,6 +121,12 @@ export default function AgentDetails() {
   const [antivirusBusy, setAntivirusBusy] = useState("");
   const [antivirusError, setAntivirusError] = useState("");
   const [antivirusMessage, setAntivirusMessage] = useState("");
+  // null = not decided yet: the dashboard's first check settles it.
+  const [antivirusAutoCheck, setAntivirusAutoCheck] = useState(null);
+  const [antivirusRealtimeIgnored, setAntivirusRealtimeIgnored] = useState(false);
+  const [antivirusInstallDismissed, setAntivirusInstallDismissed] = useState(false);
+  // Instance-wide switch from Admin: off means no checks and no offers at all.
+  const [antivirusMonitoringEnabled, setAntivirusMonitoringEnabled] = useState(true);
 
   const saveMonitor = async (enabled) => {
     setMonitorSaving(true);
@@ -175,6 +181,10 @@ export default function AgentDetails() {
       if (data.agent?.antivirus !== undefined) {
         setAntivirus(data.agent.antivirus);
         setAntivirusCheckedAt(data.agent.antivirusCheckedAt || null);
+        setAntivirusAutoCheck(data.agent.antivirusAutoCheck ?? null);
+        setAntivirusRealtimeIgnored(Boolean(data.agent.antivirusRealtimeIgnored));
+        setAntivirusInstallDismissed(Boolean(data.agent.antivirusInstallDismissed));
+        setAntivirusMonitoringEnabled(data.agent.antivirusMonitoringEnabled !== false);
       }
       if (data.agent && data.agent.monitorEnabled !== undefined) {
         setMonitorEnabled(data.agent.monitorEnabled);
@@ -269,6 +279,73 @@ export default function AgentDetails() {
       }
       setAntivirus(command.result || null);
       setAntivirusCheckedAt(new Date().toISOString());
+    } catch (err) {
+      setAntivirusError(err.message || t("errors.commandFailed"));
+    } finally {
+      setAntivirusBusy("");
+    }
+  };
+
+  const saveAntivirusSettings = async (changes) => {
+    setAntivirusError("");
+    try {
+      await apiFetch(`/api/agents/${id}/antivirus/settings`, {
+        method: "PUT",
+        body: JSON.stringify(changes)
+      });
+      if (changes.autoCheck !== undefined) setAntivirusAutoCheck(changes.autoCheck);
+      if (changes.realtimeIgnored !== undefined) setAntivirusRealtimeIgnored(changes.realtimeIgnored);
+      if (changes.installDismissed !== undefined) setAntivirusInstallDismissed(changes.installDismissed);
+    } catch (err) {
+      setAntivirusError(err.message || t("errors.saveFailed"));
+    }
+  };
+
+  const enableRealtime = async () => {
+    setAntivirusBusy("realtime");
+    setAntivirusError("");
+    setAntivirusMessage("");
+    try {
+      const result = await apiFetch(`/api/agents/${id}/antivirus/realtime`, { method: "POST" });
+      const command = await pollCommand(result.commandId);
+      if (command.status === "ERROR") {
+        setAntivirusError(command.errorMessage || t("errors.commandFailed"));
+        return;
+      }
+      setAntivirus(command.result || null);
+      setAntivirusCheckedAt(new Date().toISOString());
+      setAntivirusRealtimeIgnored(false);
+      setAntivirusMessage(t("antivirus.realtimeEnabledOk"));
+    } catch (err) {
+      setAntivirusError(err.message || t("errors.commandFailed"));
+    } finally {
+      setAntivirusBusy("");
+    }
+  };
+
+  const installClamav = async () => {
+    setAntivirusBusy("install");
+    setAntivirusError("");
+    setAntivirusMessage("");
+    try {
+      const result = await apiFetch(`/api/agents/${id}/antivirus/install`, { method: "POST" });
+      let command;
+      try {
+        command = await pollCommand(result.commandId);
+      } catch {
+        // Packages plus a first signature download can outlast the polling
+        // budget; the machine carries on and the card catches up.
+        setAntivirusMessage(t("antivirus.installStillRunning"));
+        return;
+      }
+      if (command.status === "ERROR") {
+        setAntivirusError(command.errorMessage || t("errors.commandFailed"));
+        return;
+      }
+      setAntivirus(command.result || null);
+      setAntivirusCheckedAt(new Date().toISOString());
+      setAntivirusAutoCheck(true);
+      setAntivirusMessage(t("antivirus.installedOk"));
     } catch (err) {
       setAntivirusError(err.message || t("errors.commandFailed"));
     } finally {
@@ -781,6 +858,15 @@ export default function AgentDetails() {
           </button>
 
           {/* Antivirus health */}
+          {!antivirusMonitoringEnabled ? (
+            <div className="card !p-6 space-y-3">
+              <div className="flex items-center gap-3 text-slate-500">
+                <ShieldCheck size={16} />
+                <h3 className="text-[10px] font-bold uppercase tracking-[0.2em]">{t("antivirus.title")}</h3>
+              </div>
+              <p className="text-xs text-slate-500 leading-relaxed">{t("antivirus.monitoringDisabled")}</p>
+            </div>
+          ) : (
           <div className="card !p-6 space-y-5">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-3 text-emerald-400">
@@ -789,7 +875,7 @@ export default function AgentDetails() {
               </div>
               <button
                 type="button"
-                className="btn-ghost !px-3 !py-1.5 text-xs"
+                className="btn btn-secondary !px-3 !py-1.5 text-xs"
                 onClick={checkAntivirus}
                 disabled={Boolean(antivirusBusy)}
               >
@@ -843,6 +929,9 @@ export default function AgentDetails() {
                       <span className="text-slate-500">{t("antivirus.realtime")}</span>
                       <span className={antivirus.realtimeEnabled ? "text-emerald-400" : "text-amber-400"}>
                         {antivirus.realtimeEnabled ? t("antivirus.realtimeOn") : t("antivirus.realtimeOff")}
+                        {!antivirus.realtimeEnabled && antivirusRealtimeIgnored && (
+                          <span className="text-slate-500"> · {t("antivirus.ignored")}</span>
+                        )}
                       </span>
                     </div>
                     <div className="flex items-center justify-between text-xs">
@@ -876,6 +965,83 @@ export default function AgentDetails() {
                   </div>
                 )}
 
+                {!antivirus.installed && antivirus.installAvailable && (
+                  antivirusInstallDismissed ? (
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-[11px] text-slate-500">{t("antivirus.installDismissedHint")}</span>
+                      <button
+                        type="button"
+                        className="btn btn-secondary !px-3 !py-1.5 text-xs"
+                        onClick={installClamav}
+                        disabled={Boolean(antivirusBusy)}
+                      >
+                        {antivirusBusy === "install" ? t("antivirus.installing") : t("antivirus.installClamav")}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="p-3 rounded-xl bg-white/[0.03] border border-white/5 space-y-3">
+                      <p className="text-xs text-slate-300 leading-relaxed">{t("antivirus.installPrompt")}</p>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          className="btn btn-secondary !py-2 text-xs flex-1"
+                          onClick={installClamav}
+                          disabled={Boolean(antivirusBusy)}
+                        >
+                          {antivirusBusy === "install" ? t("antivirus.installing") : t("antivirus.installClamav")}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-secondary !py-2 text-xs flex-1"
+                          onClick={() => saveAntivirusSettings({ installDismissed: true })}
+                          disabled={Boolean(antivirusBusy)}
+                        >
+                          {t("antivirus.installDismiss")}
+                        </button>
+                      </div>
+                    </div>
+                  )
+                )}
+
+                {antivirus.installed && !antivirus.realtimeEnabled && antivirus.realtimeFixable && (
+                  antivirusRealtimeIgnored ? (
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-[11px] text-slate-500">{t("antivirus.realtimeIgnoredHint")}</span>
+                      <button
+                        type="button"
+                        className="btn btn-secondary !px-3 !py-1.5 text-xs"
+                        onClick={enableRealtime}
+                        disabled={Boolean(antivirusBusy)}
+                      >
+                        {antivirusBusy === "realtime" ? t("antivirus.enabling") : t("antivirus.enableRealtime")}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="p-3 rounded-xl bg-amber-500/[0.06] border border-amber-500/15 space-y-3">
+                      <p className="text-xs text-amber-300">{t("antivirus.realtimePrompt")}</p>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          className="btn btn-primary !py-2 text-xs flex-1"
+                          onClick={enableRealtime}
+                          disabled={Boolean(antivirusBusy)}
+                        >
+                          {antivirusBusy === "realtime" ? t("antivirus.enabling") : t("antivirus.enableRealtime")}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-secondary !py-2 text-xs flex-1"
+                          onClick={() => saveAntivirusSettings({ realtimeIgnored: true })}
+                          disabled={Boolean(antivirusBusy)}
+                        >
+                          {t("antivirus.ignore")}
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-slate-500 leading-relaxed">{t("antivirus.disableOnMachineOnly")}</p>
+                    </div>
+                  )
+                )}
+
                 {Array.isArray(antivirus.threats) && antivirus.threats.length > 0 && (
                   <div className="space-y-1.5 pt-1">
                     {antivirus.threats.slice(0, 10).map((threat, index) => (
@@ -903,7 +1069,7 @@ export default function AgentDetails() {
                   <div className="flex gap-2">
                     <button
                       type="button"
-                      className="btn-secondary !py-2 text-xs flex-1"
+                      className="btn btn-secondary !py-2 text-xs flex-1"
                       onClick={() => runAntivirusScan("quick")}
                       disabled={Boolean(antivirusBusy)}
                     >
@@ -911,7 +1077,7 @@ export default function AgentDetails() {
                     </button>
                     <button
                       type="button"
-                      className="btn-secondary !py-2 text-xs flex-1"
+                      className="btn btn-secondary !py-2 text-xs flex-1"
                       onClick={() => runAntivirusScan("full")}
                       disabled={Boolean(antivirusBusy)}
                     >
@@ -924,6 +1090,27 @@ export default function AgentDetails() {
               </div>
             )}
 
+            <label className="flex items-center gap-4 cursor-pointer group p-3 rounded-xl hover:bg-white/5 transition-colors">
+              <div className="relative shrink-0">
+                <input
+                  type="checkbox"
+                  checked={antivirusAutoCheck === true}
+                  onChange={(e) => saveAntivirusSettings({ autoCheck: e.target.checked })}
+                  className="peer sr-only"
+                />
+                <div className="w-10 h-6 bg-slate-800 rounded-full peer-checked:bg-emerald-500/20 transition-colors" />
+                <div className="absolute left-1 top-1 w-4 h-4 bg-slate-500 rounded-full transition-all peer-checked:left-5 peer-checked:bg-emerald-400" />
+              </div>
+              <div className="space-y-0.5">
+                <span className="text-sm font-bold text-slate-300 group-hover:text-white transition-colors">
+                  {t("antivirus.autoCheck")}
+                </span>
+                {antivirusAutoCheck === null && (
+                  <p className="text-[10px] text-slate-500 leading-relaxed">{t("antivirus.autoCheckPending")}</p>
+                )}
+              </div>
+            </label>
+
             {antivirusMessage && <p className="text-xs text-brand-300">{antivirusMessage}</p>}
             {antivirusError && (
               <p className="text-xs text-red-400">{t("antivirus.failed", { error: antivirusError })}</p>
@@ -934,6 +1121,7 @@ export default function AgentDetails() {
               </p>
             )}
           </div>
+          )}
 
           {/* Monitoring Settings */}
           <div className="card !p-6 space-y-6">

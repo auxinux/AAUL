@@ -172,6 +172,14 @@ def handle_command(config, command):
             # A scan that finds something still succeeded: the detection is the
             # result, not an agent failure.
             result_payload = run_scan(payload.get("scanType"), payload.get("path"))
+        elif cmd_type == "ANTIVIRUS_INSTALL":
+            # Installs ClamAV from a package list fixed in the agent.
+            from lib.antivirus import install_clamav
+            result_payload = install_clamav()
+        elif cmd_type == "ANTIVIRUS_ENABLE_REALTIME":
+            # Enable only: no command exists to turn protection off.
+            from lib.antivirus import enable_realtime
+            result_payload = enable_realtime()
         elif cmd_type == "CHECK_UPDATES":
             from lib.packages import check_updates
             result_payload = check_updates()

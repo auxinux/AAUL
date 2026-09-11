@@ -10,6 +10,7 @@ import { recordAuditEvent } from "../utils/audit.js";
 import config from "../config.js";
 import { getSetting } from "../utils/settings.js";
 import { validateCommandPayload } from "../utils/command-policy.js";
+import { compareVersions } from "../utils/update-check.js";
 
 const router = express.Router();
 
@@ -50,6 +51,29 @@ async function mergeAntivirusScan(agentId, scan, now) {
     "UPDATE agents SET antivirus_json = ?, antivirus_checked_at = ? WHERE id = ?",
     [JSON.stringify(merged), now, agentId]
   );
+}
+
+// Automatic antivirus checks run hourly, and only on agents that know the
+// command — ANTIVIRUS_STATUS shipped with agent 0.11.0.
+const ANTIVIRUS_CHECK_INTERVAL_MS = 60 * 60 * 1000;
+const ANTIVIRUS_MIN_AGENT_VERSION = "0.11.0";
+
+function antivirusCheckDue(agent, agentVersion, nowMs) {
+  // NULL means "not decided yet", which is exactly when the discovery check
+  // must run — so only an explicit 0 turns the schedule off.
+  const autoCheck = agent.antivirus_auto_check;
+  if (autoCheck !== null && autoCheck !== undefined && Number(autoCheck) === 0) {
+    return false;
+  }
+  if (!agentVersion || compareVersions(agentVersion, ANTIVIRUS_MIN_AGENT_VERSION) < 0) {
+    return false;
+  }
+  // A manual check or a scan counts too: no point re-checking right after one.
+  const last = Math.max(
+    Date.parse(agent.antivirus_attempted_at || "") || 0,
+    Date.parse(agent.antivirus_checked_at || "") || 0
+  );
+  return nowMs - last >= ANTIVIRUS_CHECK_INTERVAL_MS;
 }
 
 // Sign every JSON response to the agent so that clients which require signed
@@ -520,6 +544,20 @@ router.post("/poll", requireAgentAuth, async (req, res) => {
       });
       return;
     }
+    // The hourly antivirus check — and the one-time discovery that decides its
+    // default — is handed out here rather than queued: it never waits for a
+    // poll cycle, and holds the command slot only while it actually runs.
+    // Turning antivirus monitoring off in Admin stops both. The setting is only
+    // read once a check is due, so an idle poll costs no extra query.
+    if (
+      antivirusCheckDue(req.agent, currentAgentVersion, Date.now()) &&
+      (await getSetting("antivirusMonitoringEnabled")) !== "false"
+    ) {
+      const command = await createImmediateCommand(req.agent.id, "ANTIVIRUS_STATUS", null, now);
+      await dbOps.run("UPDATE agents SET antivirus_attempted_at = ? WHERE id = ?", [now, req.agent.id]);
+      res.json({ ok: true, localWeb: localWebConfig, logs: logsConfig, latestAgentVersion, command });
+      return;
+    }
     res.json({ ok: true, command: null, localWeb: localWebConfig, logs: logsConfig, latestAgentVersion });
     return;
   }
@@ -633,11 +671,33 @@ router.post("/command-result", requireAgentAuth, async (req, res) => {
     ]);
     broadcastSSE("agent:update", { agentId: req.agent.id });
   }
-  if (command.type === "ANTIVIRUS_STATUS" && finalStatus !== "ERROR" && body.result) {
+  // Enabling real-time protection and installing ClamAV both answer with the
+  // resulting status, so they are stored exactly like a status check.
+  if (
+    ["ANTIVIRUS_STATUS", "ANTIVIRUS_ENABLE_REALTIME", "ANTIVIRUS_INSTALL"].includes(command.type) &&
+    finalStatus !== "ERROR" &&
+    body.result
+  ) {
     await dbOps.run(
       "UPDATE agents SET antivirus_json = ?, antivirus_checked_at = ? WHERE id = ?",
       [JSON.stringify(body.result), now, req.agent.id]
     );
+    // Installing an antivirus is a clear enough signal that it should be
+    // watched: the hourly check goes on, even if discovery had turned it off.
+    if (command.type === "ANTIVIRUS_INSTALL") {
+      await dbOps.run("UPDATE agents SET antivirus_auto_check = 1 WHERE id = ?", [req.agent.id]);
+    }
+    // The first answer ever decides the hourly check: on with an antivirus,
+    // off without one. The IS NULL guard means an operator's choice always wins.
+    await dbOps.run(
+      "UPDATE agents SET antivirus_auto_check = ? WHERE id = ? AND antivirus_auto_check IS NULL",
+      [body.result.installed ? 1 : 0, req.agent.id]
+    );
+    // Protection is back on: if it lapses again later, that deserves a fresh
+    // prompt rather than an old dismissal.
+    if (body.result.realtimeEnabled) {
+      await dbOps.run("UPDATE agents SET antivirus_realtime_ignored = 0 WHERE id = ?", [req.agent.id]);
+    }
     broadcastSSE("agent:update", { agentId: req.agent.id });
   }
   if (command.type === "ANTIVIRUS_SCAN" && finalStatus !== "ERROR" && body.result) {

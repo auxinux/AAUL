@@ -95,6 +95,9 @@ func Handle(client *api.Client, cfg *config.Config, command Command) (outcome Ou
 		return wrap(antivirus.Status())
 	case "ANTIVIRUS_SCAN":
 		return antivirusScan(command.Payload)
+	case "ANTIVIRUS_ENABLE_REALTIME":
+		// Enable only: no command exists to turn protection off.
+		return wrap(antivirus.EnableRealtime())
 	default:
 		return failed("Unknown command %s", command.Type)
 	}

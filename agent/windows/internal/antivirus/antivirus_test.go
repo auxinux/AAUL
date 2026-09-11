@@ -169,3 +169,46 @@ func TestBuildScanResultReportsInfectedWhenThreatsFound(t *testing.T) {
 		t.Errorf("durationSeconds = %v", result["durationSeconds"])
 	}
 }
+
+func TestRealtimeFixableWhenDefenderRealtimeOff(t *testing.T) {
+	status := buildStatus(rawStatus{
+		DefenderPresent: true, AMServiceEnabled: true, AntivirusEnabled: true,
+		RealTimeProtectionEnabled: false, SignatureAge: intPtr(0),
+	}, time.Now())
+	if fixable, _ := status["realtimeFixable"].(bool); !fixable {
+		t.Fatal("Defender with real-time off must be offered the fix")
+	}
+}
+
+func TestRealtimeNotFixableUnderGroupPolicy(t *testing.T) {
+	status := buildStatus(rawStatus{
+		DefenderPresent: true, AMServiceEnabled: true, AntivirusEnabled: true,
+		RealTimeProtectionEnabled: false, RealtimePolicyDisabled: true, SignatureAge: intPtr(0),
+	}, time.Now())
+	if fixable, _ := status["realtimeFixable"].(bool); fixable {
+		t.Fatal("a Group Policy decision must not be overridden from the dashboard")
+	}
+}
+
+func TestRealtimeNotFixableWhenAlreadyOnOrThirdParty(t *testing.T) {
+	on := buildStatus(rawStatus{
+		DefenderPresent: true, AMServiceEnabled: true, AntivirusEnabled: true,
+		RealTimeProtectionEnabled: true, SignatureAge: intPtr(0),
+	}, time.Now())
+	if fixable, _ := on["realtimeFixable"].(bool); fixable {
+		t.Error("nothing to fix when real-time protection is already on")
+	}
+	thirdParty := buildStatus(rawStatus{
+		DefenderPresent: true, AMServiceEnabled: true,
+		Products: []rawProduct{{Name: "Bitdefender Antivirus", ProductState: 0x061000}},
+	}, time.Now())
+	if fixable, _ := thirdParty["realtimeFixable"].(bool); fixable {
+		t.Error("AAUL cannot switch a third-party product's real-time protection")
+	}
+}
+
+func TestEmptyStatusIsNeverFixable(t *testing.T) {
+	if fixable, _ := buildStatus(rawStatus{}, time.Now())["realtimeFixable"].(bool); fixable {
+		t.Error("no antivirus, nothing to switch on")
+	}
+}

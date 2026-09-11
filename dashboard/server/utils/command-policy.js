@@ -8,7 +8,14 @@ const COMMANDS_WITHOUT_PAYLOAD = new Set([
   "LIST_LOGS",
   "CHECK_UPDATES",
   "PACKAGES_LIST",
-  "ANTIVIRUS_STATUS"
+  "ANTIVIRUS_STATUS",
+  // Turns real-time protection ON only. There is deliberately no command to
+  // turn it off: that has to be done on the machine itself, so a compromised
+  // dashboard account cannot strip a whole fleet of its antivirus.
+  "ANTIVIRUS_ENABLE_REALTIME",
+  // Installs ClamAV from a package list fixed in the agent: the dashboard never
+  // sends a package name, so this cannot become a way to install anything else.
+  "ANTIVIRUS_INSTALL"
 ]);
 
 export const GROUP_COMMAND_TYPES = new Set([

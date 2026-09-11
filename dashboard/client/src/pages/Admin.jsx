@@ -514,6 +514,7 @@ export default function Admin() {
   const [defaultPollSeconds, setDefaultPollSeconds] = useState("15");
   const [metricsRetentionDays, setMetricsRetentionDays] = useState("30");
   const [updateCheckEnabled, setUpdateCheckEnabled] = useState(true);
+  const [antivirusMonitoringEnabled, setAntivirusMonitoringEnabled] = useState(true);
   const [updateCheckIntervalMinutes, setUpdateCheckIntervalMinutes] = useState("30");
   const [updateReleaseUrl, setUpdateReleaseUrl] = useState("");
   const [serverConfig, setServerConfig] = useState({
@@ -545,6 +546,7 @@ export default function Admin() {
       setDefaultPollSeconds(settings.defaultPollSeconds || "15");
       setMetricsRetentionDays(settings.metricsRetentionDays || "30");
       setUpdateCheckEnabled(settings.updateCheckEnabled !== false);
+      setAntivirusMonitoringEnabled(settings.antivirusMonitoringEnabled !== false);
       setUpdateCheckIntervalMinutes(settings.updateCheckIntervalMinutes || "30");
       setUpdateReleaseUrl(settings.updateReleaseUrl || "");
       if (serverRes.ok && serverRes.config) setServerConfig(serverRes.config);
@@ -574,6 +576,7 @@ export default function Admin() {
           defaultPollSeconds,
           metricsRetentionDays,
           updateCheckEnabled,
+          antivirusMonitoringEnabled,
           updateCheckIntervalMinutes,
           updateReleaseUrl
         })
@@ -681,6 +684,25 @@ export default function Admin() {
                onChange={(e) => setMetricsRetentionDays(e.target.value)}
              />
              <p className="text-xs text-slate-500">{t("metrics.retentionHint")}</p>
+           </div>
+
+           <div className="space-y-4 pt-4 border-t border-white/5">
+             <label className="flex items-start gap-3 cursor-pointer">
+               <input
+                 type="checkbox"
+                 className="mt-1 rounded border-white/10 bg-black/40 text-brand-500 focus:ring-brand-500/20"
+                 checked={antivirusMonitoringEnabled}
+                 onChange={(e) => setAntivirusMonitoringEnabled(e.target.checked)}
+               />
+               <span className="min-w-0">
+                 <span className="block text-sm font-semibold text-white">
+                   {t("antivirus.settingTitle")}
+                 </span>
+                 <span className="block text-xs text-slate-500 mt-0.5">
+                   {t("antivirus.settingHint")}
+                 </span>
+               </span>
+             </label>
            </div>
 
            <div className="space-y-4 pt-4 border-t border-white/5">

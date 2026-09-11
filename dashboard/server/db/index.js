@@ -190,6 +190,27 @@ export async function initDb() {
   if (!agentColumnNames.has("antivirus_checked_at")) {
     await run("ALTER TABLE agents ADD COLUMN antivirus_checked_at TEXT");
   }
+  // Hourly antivirus check, per machine. NULL means "not decided yet": the
+  // first status result settles it (on when an antivirus is installed, off
+  // otherwise), and from then on only the operator changes it.
+  if (!agentColumnNames.has("antivirus_auto_check")) {
+    await run("ALTER TABLE agents ADD COLUMN antivirus_auto_check INTEGER");
+  }
+  // When the dashboard last handed out an automatic check, whatever its
+  // outcome — so a check that keeps failing is retried hourly, not every poll.
+  if (!agentColumnNames.has("antivirus_attempted_at")) {
+    await run("ALTER TABLE agents ADD COLUMN antivirus_attempted_at TEXT");
+  }
+  // The operator dismissed the real-time protection prompt. Reversible: the
+  // enable action stays available.
+  if (!agentColumnNames.has("antivirus_realtime_ignored")) {
+    await run("ALTER TABLE agents ADD COLUMN antivirus_realtime_ignored INTEGER DEFAULT 0");
+  }
+  // The operator declined the offer to install ClamAV on this machine.
+  // Reversible: the install action stays available.
+  if (!agentColumnNames.has("antivirus_install_dismissed")) {
+    await run("ALTER TABLE agents ADD COLUMN antivirus_install_dismissed INTEGER DEFAULT 0");
+  }
   // Live vital signs (CPU / memory / disk) sent with every poll. Distinct from
   // last_info_json, which is the expensive inventory refreshed on demand only.
   if (!agentColumnNames.has("metrics_json")) {

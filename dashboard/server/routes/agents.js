@@ -674,6 +674,16 @@ router.get("/:id", requireAdmin, async (req, res) => {
         catch { return null; }
       })(),
       antivirusCheckedAt: agent.antivirus_checked_at || null,
+      // null = not decided yet; the discovery check settles it.
+      antivirusAutoCheck:
+        agent.antivirus_auto_check === null || agent.antivirus_auto_check === undefined
+          ? null
+          : agent.antivirus_auto_check === 1,
+      antivirusRealtimeIgnored: agent.antivirus_realtime_ignored === 1,
+      antivirusInstallDismissed: agent.antivirus_install_dismissed === 1,
+      // Instance-wide switch from Admin. Exposed here because /api/settings is
+      // reserved to the system admin, and a tenant admin still needs to know.
+      antivirusMonitoringEnabled: (await getSetting("antivirusMonitoringEnabled")) !== "false",
       schedule: {
         enabled: Boolean(agent.schedule_enabled),
         dailyTime: agent.schedule_daily_time
@@ -1363,6 +1373,74 @@ router.post("/:id/antivirus/scan", requireAdmin, async (req, res) => {
     payload.path = req.body.path;
   }
   const result = await createCommand(req.params.id, "ANTIVIRUS_SCAN", payload, req);
+  if (result.error) {
+    res.status(result.status).json({ error: result.error });
+    return;
+  }
+  res.json({ ok: true, commandId: result.id });
+});
+
+// Per-machine antivirus preferences: the hourly check, and whether the
+// real-time and ClamAV offers were dismissed. None of them touches the machine.
+// Column names come from this fixed map, never from the request.
+const ANTIVIRUS_SETTING_COLUMNS = {
+  autoCheck: "antivirus_auto_check",
+  realtimeIgnored: "antivirus_realtime_ignored",
+  installDismissed: "antivirus_install_dismissed"
+};
+
+router.put("/:id/antivirus/settings", requireAdmin, async (req, res) => {
+  const changes = Object.entries(req.body || {}).filter(([key]) =>
+    Object.hasOwn(ANTIVIRUS_SETTING_COLUMNS, key)
+  );
+  if (changes.length === 0) {
+    res.status(400).json({ error: "Nothing to update" });
+    return;
+  }
+  const invalid = changes.find(([, value]) => typeof value !== "boolean");
+  if (invalid) {
+    res.status(400).json({ error: `${invalid[0]} must be a boolean` });
+    return;
+  }
+  const agent = await dbOps.get("SELECT id FROM agents WHERE id = ?", [req.params.id]);
+  // AAUL-Cloud: isolation multi-tenant
+  if (!agent || !(await applyAgentFilters(agent, req))) {
+    res.status(404).json({ error: "Agent not found" });
+    return;
+  }
+  for (const [key, value] of changes) {
+    await dbOps.run(`UPDATE agents SET ${ANTIVIRUS_SETTING_COLUMNS[key]} = ? WHERE id = ?`, [
+      value ? 1 : 0,
+      req.params.id
+    ]);
+  }
+  await recordAuditEvent({
+    actorUserId: getActorUserId(req),
+    action: "agent.antivirus_settings_updated",
+    entityType: "agent",
+    entityId: req.params.id,
+    agentId: req.params.id,
+    details: Object.fromEntries(changes)
+  });
+  res.json({ ok: true });
+});
+
+// Turns real-time protection on. The reverse does not exist, on purpose — see
+// ANTIVIRUS_ENABLE_REALTIME in utils/command-policy.js.
+router.post("/:id/antivirus/realtime", requireAdmin, async (req, res) => {
+  const result = await createCommand(req.params.id, "ANTIVIRUS_ENABLE_REALTIME", null, req);
+  if (result.error) {
+    res.status(result.status).json({ error: result.error });
+    return;
+  }
+  res.json({ ok: true, commandId: result.id });
+});
+
+// Installs ClamAV's on-demand scanner on a Linux machine with no antivirus.
+// Only ever triggered by an operator accepting the offer — nothing installs it
+// on its own — and the package list is fixed in the agent.
+router.post("/:id/antivirus/install", requireAdmin, async (req, res) => {
+  const result = await createCommand(req.params.id, "ANTIVIRUS_INSTALL", null, req);
   if (result.error) {
     res.status(result.status).json({ error: result.error });
     return;

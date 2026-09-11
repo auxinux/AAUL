@@ -20,11 +20,13 @@ import plistlib
 import re
 import shutil
 import subprocess
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 from .config import read_state, write_state
 from .logs import log
+from .package_manager import detect_package_manager
 
 # Signatures older than this are what "out of date" means for the roll-up.
 STALE_SIGNATURE_DAYS = 7
@@ -38,6 +40,32 @@ _SCAN_PATH_RE = re.compile(r"^/[A-Za-z0-9._/-]{0,255}$")
 
 # Directories worth a "quick" look: where user-writable content lands.
 _QUICK_PATHS = ["/home", "/root", "/tmp", "/var/tmp"]
+
+# Unit names differ between distributions (Debian: clamav-*, Fedora: clamd@scan).
+_CLAMD_UNITS = ["clamav-daemon", "clamd@scan", "clamd"]
+_CLAMONACC_UNITS = ["clamav-clamonacc", "clamonacc"]
+
+_INSTALL_TIMEOUT = 15 * 60
+_SIGNATURE_WAIT_SECONDS = 5 * 60
+
+# The light install: the on-demand scanner and the signature updater, but not
+# clamd, which keeps every signature in memory (around 1 GB). Real-time
+# scanning stays a separate, deliberate step.
+_CLAMAV_PACKAGES = {
+    "apt": ["clamav", "clamav-freshclam"],
+    "dnf": ["clamav", "clamav-update"],
+    "yum": ["clamav", "clamav-update"],
+    "pacman": ["clamav"],
+    "zypper": ["clamav"],
+}
+_INSTALL_COMMANDS = {
+    # --no-install-recommends keeps apt from pulling clamav-daemon back in.
+    "apt": ["env", "DEBIAN_FRONTEND=noninteractive", "apt-get", "install", "-y", "--no-install-recommends"],
+    "dnf": ["dnf", "install", "-y"],
+    "yum": ["yum", "install", "-y"],
+    "pacman": ["pacman", "-S", "--noconfirm", "--needed"],
+    "zypper": ["zypper", "--non-interactive", "install"],
+}
 
 # `clamscan --version` → "ClamAV 1.0.3/27000/Tue Sep 10 08:00:00 2026"
 _CLAM_VERSION_RE = re.compile(r"ClamAV\s+([0-9][^/\s]*)(?:/(\d+)/(.+))?")
@@ -92,6 +120,45 @@ def _process_running(name):
     return code == 0
 
 
+def _unit_exists(unit):
+    if not shutil.which("systemctl"):
+        return False
+    try:
+        code, _, _ = _run(["systemctl", "cat", unit], 10)
+    except AntivirusError:
+        return False
+    return code == 0
+
+
+def _first_unit(candidates):
+    return next((unit for unit in candidates if _unit_exists(unit)), None)
+
+
+def _wait_active(unit, timeout):
+    """clamd loads every signature before it reports active, which takes a while."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if _service_active(unit):
+            return True
+        time.sleep(2)
+    return False
+
+
+def _unit_status_tail(unit):
+    try:
+        _, out, err = _run(["systemctl", "status", unit, "--no-pager", "--lines=5"], 10)
+    except AntivirusError:
+        return ""
+    text = (out or err).strip()
+    return f"\n{text[-600:]}" if text else ""
+
+
+def _systemctl_enable_now(unit):
+    code, out, err = _run(["systemctl", "enable", "--now", unit], 120, add_sudo=True)
+    if code != 0:
+        raise AntivirusError(f"Impossible de démarrer {unit} : {(err or out).strip()[:300]}")
+
+
 def _days_since(moment):
     if not moment:
         return None
@@ -132,12 +199,7 @@ def _clam_binary():
 
 
 def _clamd_running():
-    return (
-        _service_active("clamav-daemon")
-        or _service_active("clamd@scan")
-        or _service_active("clamd")
-        or _process_running("clamd")
-    )
+    return any(_service_active(unit) for unit in _CLAMD_UNITS) or _process_running("clamd")
 
 
 def _clam_version_info():
@@ -168,7 +230,7 @@ def _clam_version_info():
 
 def _clam_status():
     version, signature, signed_at = _clam_version_info()
-    realtime = _service_active("clamav-clamonacc") or _process_running("clamonacc")
+    realtime = any(_service_active(unit) for unit in _CLAMONACC_UNITS) or _process_running("clamonacc")
     freshclam = _service_active("clamav-freshclam") or _process_running("freshclam")
     age = _days_since(signed_at)
 
@@ -177,6 +239,8 @@ def _clam_status():
         "version": version,
         "enabled": True,  # an installed clamscan can always be asked to scan
         "realtimeEnabled": realtime,
+        # AAUL can only start on-access scanning if clamonacc is installed.
+        "realtimeFixable": not realtime and _first_unit(_CLAMONACC_UNITS) is not None,
         "daemonRunning": _clamd_running(),
         "autoUpdateEnabled": freshclam,
         "signatureVersion": signature,
@@ -284,6 +348,7 @@ def _xprotect_status():
         "version": version,
         "enabled": True,
         "realtimeEnabled": True,
+        "realtimeFixable": False,
         "daemonRunning": True,
         "autoUpdateEnabled": True,
         "signatureVersion": version,
@@ -307,6 +372,9 @@ def _empty_status(reason):
         "version": None,
         "enabled": False,
         "realtimeEnabled": False,
+        "realtimeFixable": False,
+        "installAvailable": False,
+        "installSource": None,
         "daemonRunning": False,
         "autoUpdateEnabled": False,
         "signatureVersion": None,
@@ -361,16 +429,22 @@ def get_status():
     if engine is None and system == "Darwin":
         engine = _xprotect_status()
     if engine is None:
-        return _empty_status(
-            "ClamAV n'est pas installé"
-            if system == "Linux"
-            else "Aucun antivirus détecté"
-        )
+        if system != "Linux":
+            return _empty_status("Aucun antivirus détecté")
+        status = _empty_status("ClamAV n'est pas installé")
+        # Offered, never pushed: the dashboard shows it as an option.
+        manager = detect_package_manager()
+        if manager in _CLAMAV_PACKAGES and _clamav_available(manager):
+            status["installAvailable"] = True
+            status["installSource"] = manager
+        return status
 
     history = _read_scan_history()
     status = {
         "supported": True,
         "installed": True,
+        "installAvailable": False,
+        "installSource": None,
         "lastScanAt": history.get("lastScanAt"),
         "lastScanType": history.get("lastScanType"),
         "threatsFound": int(history.get("lastScanThreats") or 0),
@@ -399,3 +473,121 @@ def run_scan(scan_type=None, path=None):
     _record_scan(result)
     log(f"[antivirus] scan {scan_type} finished: {result['threatsFound']} threat(s)")
     return result
+
+
+def enable_realtime():
+    """Turn on-access (real-time) scanning on and return the resulting status.
+
+    There is deliberately no counterpart: turning protection off has to be
+    done on the machine itself.
+    """
+    if platform.system() != "Linux":
+        raise AntivirusError("Activation du temps réel non prise en charge sur ce système")
+    if not (shutil.which("clamscan") or shutil.which("clamdscan")):
+        raise AntivirusError("ClamAV n'est pas installé")
+    onacc = _first_unit(_CLAMONACC_UNITS)
+    if not onacc:
+        raise AntivirusError("Le scan en temps réel de ClamAV (clamonacc) n'est pas installé")
+
+    # clamonacc hands every file to clamd: without the daemon it exits at once.
+    if not _clamd_running():
+        daemon = _first_unit(_CLAMD_UNITS)
+        if not daemon:
+            raise AntivirusError("Le démon ClamAV (clamd) n'est pas installé")
+        _systemctl_enable_now(daemon)
+        if not _wait_active(daemon, timeout=90):
+            raise AntivirusError(f"{daemon} ne démarre pas" + _unit_status_tail(daemon))
+
+    _systemctl_enable_now(onacc)
+    if not _wait_active(onacc, timeout=30):
+        raise AntivirusError(
+            f"{onacc} ne démarre pas — vérifiez OnAccessIncludePath dans clamd.conf"
+            + _unit_status_tail(onacc)
+        )
+    log("[antivirus] real-time protection enabled")
+    return get_status()
+
+
+def _apt_has_candidate(policy_output):
+    match = re.search(r"Candidate:\s*(\S+)", policy_output or "")
+    return bool(match) and match.group(1) != "(none)"
+
+
+def _clamav_available(manager):
+    """Whether the repositories already configured can provide ClamAV.
+
+    AAUL never adds a repository: on a Red Hat without EPEL, for instance,
+    ClamAV is simply not offered.
+    """
+    query = {
+        "apt": ["apt-cache", "policy", "clamav"],
+        "dnf": ["dnf", "-q", "list", "--available", "clamav"],
+        "yum": ["yum", "-q", "list", "available", "clamav"],
+        "pacman": ["pacman", "-Si", "clamav"],
+        "zypper": ["zypper", "--non-interactive", "search", "--match-exact", "clamav"],
+    }.get(manager)
+    if not query:
+        return False
+    try:
+        code, out, _ = _run(query, _STATUS_TIMEOUT)
+    except AntivirusError:
+        return False
+    if manager == "apt":
+        return code == 0 and _apt_has_candidate(out)
+    return code == 0
+
+
+def _start_signature_updates():
+    """Fetch a first signature set and keep it current.
+
+    clamscan refuses to scan without signatures. Where the distribution ships
+    the freshclam service it is enabled (it downloads at once, then keeps the
+    set fresh); otherwise freshclam runs once.
+    """
+    unit = _first_unit(["clamav-freshclam"])
+    try:
+        if unit:
+            if not _service_active(unit):
+                _systemctl_enable_now(unit)
+        elif shutil.which("freshclam"):
+            _run(["freshclam"], _INSTALL_TIMEOUT, add_sudo=True)
+    except AntivirusError as exc:
+        # The scanner is installed either way; the status will report missing
+        # signatures, which is accurate and actionable.
+        log(f"[antivirus] signature download not started: {exc}")
+        return
+
+    deadline = time.monotonic() + _SIGNATURE_WAIT_SECONDS
+    while time.monotonic() < deadline:
+        if _clam_version_info()[1]:
+            return
+        time.sleep(10)
+
+
+def install_clamav():
+    """Install ClamAV's on-demand scanner and signature updater, then report.
+
+    Only ever run because an operator accepted the dashboard's offer. The
+    package list is fixed here: the dashboard sends no package name.
+    """
+    if platform.system() != "Linux":
+        raise AntivirusError("L'installation de ClamAV n'est proposée que sous Linux")
+    if shutil.which("clamscan") or shutil.which("clamdscan"):
+        return get_status()
+    manager = detect_package_manager()
+    packages = _CLAMAV_PACKAGES.get(manager)
+    if not packages:
+        raise AntivirusError(f"Gestionnaire de paquets non pris en charge : {manager}")
+    if not _clamav_available(manager):
+        raise AntivirusError("ClamAV n'est pas disponible dans les dépôts de cette machine")
+
+    log(f"[antivirus] installing ClamAV via {manager}")
+    if manager == "apt":
+        _run(["apt-get", "update"], _INSTALL_TIMEOUT, add_sudo=True)
+    code, out, err = _run(_INSTALL_COMMANDS[manager] + packages, _INSTALL_TIMEOUT, add_sudo=True)
+    if code != 0:
+        raise AntivirusError("Installation de ClamAV échouée : " + (err or out).strip()[-500:])
+
+    _start_signature_updates()
+    log("[antivirus] ClamAV installed")
+    return get_status()

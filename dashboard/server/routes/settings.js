@@ -76,7 +76,13 @@ router.get("/", requireAdmin, requireSystemAdmin, async (req, res) => {
           : settings.updateCheckEnabled === "true",
       updateCheckIntervalMinutes:
         settings.updateCheckIntervalMinutes || String(DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES),
-      updateReleaseUrl: settings.updateReleaseUrl || ""
+      updateReleaseUrl: settings.updateReleaseUrl || "",
+
+      // Instance-wide antivirus monitoring: hourly checks, discovery, offers.
+      antivirusMonitoringEnabled:
+        settings.antivirusMonitoringEnabled === undefined
+          ? true
+          : settings.antivirusMonitoringEnabled === "true"
     }
   });
 });
@@ -98,7 +104,8 @@ router.post("/", requireAdmin, requireSystemAdmin, async (req, res) => {
     metricsRetentionDays,
     updateCheckEnabled,
     updateCheckIntervalMinutes,
-    updateReleaseUrl
+    updateReleaseUrl,
+    antivirusMonitoringEnabled
   } = req.body || {};
 
   const current = await getSettings();
@@ -149,6 +156,12 @@ router.post("/", requireAdmin, requireSystemAdmin, async (req, res) => {
           ? DEFAULT_UPDATE_CHECK_ENABLED
           : current.updateCheckEnabled === "true")
       : updateCheckEnabled === true || updateCheckEnabled === "true";
+
+  // Same guard: a partial POST keeps the stored value, and "false" stays false.
+  const antivirusMonitoringValue =
+    antivirusMonitoringEnabled === undefined
+      ? current.antivirusMonitoringEnabled !== "false"
+      : antivirusMonitoringEnabled === true || antivirusMonitoringEnabled === "true";
 
   let updateReleaseUrlValue =
     updateReleaseUrl === undefined ? (current.updateReleaseUrl || "") : "";
@@ -236,7 +249,8 @@ router.post("/", requireAdmin, requireSystemAdmin, async (req, res) => {
     metricsRetentionDays: metricsDays.value,
     updateCheckEnabled: updateEnabledValue ? "true" : "false",
     updateCheckIntervalMinutes: updateInterval.value,
-    updateReleaseUrl: updateReleaseUrlValue
+    updateReleaseUrl: updateReleaseUrlValue,
+    antivirusMonitoringEnabled: antivirusMonitoringValue ? "true" : "false"
   };
   
   await setSettings(newSettings);

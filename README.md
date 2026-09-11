@@ -23,7 +23,9 @@ The dashboard can:
 - show live CPU / memory / disk usage per host, with 24-hour history
 - aggregate pending updates across the whole fleet and flag the security ones
 - push a log-retention policy that every agent enforces locally
-- report antivirus health per host and start a remote scan
+- report antivirus health per host, check it hourly, start a remote scan,
+  turn real-time protection back on (never off: that stays on the machine),
+  and offer to install ClamAV on Linux hosts that have no antivirus
 - build and serve the latest agent bundle used for agent self-update
 
 The agent can:
@@ -34,7 +36,8 @@ The agent can:
 - apply operating system updates using the native package manager
 - report which pending updates come from a security channel
 - report antivirus health (product, real-time protection, signature freshness,
-  last scan, detected threats) and run a scan on demand
+  last scan, detected threats), run a scan on demand, turn real-time
+  protection on, and install ClamAV — each only when asked
 - prune its own log directory according to the dashboard's retention policy
 - update itself from the bundle exposed by the dashboard
 - run as a background service on each supported platform

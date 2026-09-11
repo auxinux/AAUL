@@ -1,6 +1,6 @@
 ---
-dashboard: 0.14.0
-agent: 0.11.0
+dashboard: 0.15.0
+agent: 0.12.0
 date: 2026-09-11
 ---
 
@@ -16,14 +16,24 @@ Ce fichier est la référence de version consultée par chaque installation AAUL
 
 | Composant / Component | Version |
 |-----------------------|---------|
-| Dashboard | `0.14.0` |
-| Agent     | `0.11.0` |
+| Dashboard | `0.15.0` |
+| Agent     | `0.12.0` |
 
 ```bash
 cd ~/AAUL && git pull && ./install.sh
 ```
 
 ## Français
+
+### v0.15.0 — 2026-09-11 — Surveillance de l'antivirus : vérification horaire, temps réel et ClamAV
+
+- Nouveau : la santé de l'antivirus est vérifiée automatiquement toutes les 60 minutes, réglable machine par machine. Au premier contact, le tableau de bord vérifie si la machine a un antivirus : la vérification horaire est activée s'il en trouve un, désactivée sinon. Un réglage fait à la main n'est jamais écrasé.
+- Nouveau : lorsque la protection en temps réel est inactive et que l'antivirus le permet, le tableau de bord propose de l'activer ou d'ignorer. Ignorer est réversible : l'activation reste disponible. Microsoft Defender et le scan à l'accès de ClamAV (clamonacc) sont pris en charge ; une protection coupée par une stratégie de groupe Windows n'est pas proposée à la réactivation.
+- Sécurité : la protection en temps réel ne peut pas être désactivée depuis le tableau de bord. Aucune commande ne le permet : cela reste une opération à faire sur la machine elle-même.
+- Nouveau : sur une machine Linux sans antivirus, la fiche propose d'installer ClamAV — une proposition discrète, jamais automatique, qui peut être masquée. L'installation reste légère : l'analyse à la demande et la mise à jour des signatures, sans le service résident qui occupe environ 1 Go de mémoire. Aucun dépôt n'est ajouté : si ClamAV n'est pas disponible dans les dépôts de la machine (Red Hat sans EPEL, par exemple), rien n'est proposé.
+- Nouveau : la surveillance de l'antivirus peut être désactivée pour toute l'installation depuis la page Admin. Plus aucune vérification ni proposition n'est alors faite.
+- Correctif : les boutons de la carte Antivirus (vérifier, scan rapide, scan complet) s'affichaient sans leur mise en forme.
+- Nécessite l'agent 0.12.0, que les machines récupèrent d'elles-mêmes par la mise à jour automatique des agents.
 
 ### v0.14.0 — 2026-09-11 — Santé de l'antivirus et scan à distance
 
@@ -249,6 +259,16 @@ cd ~/AAUL && git pull && ./install.sh
 - Tableau de bord temps réel (SSE).
 
 ## English
+
+### v0.15.0 — 2026-09-11 — Antivirus monitoring: hourly checks, real-time protection and ClamAV
+
+- New: antivirus health is checked automatically every 60 minutes, configurable machine by machine. On first contact the dashboard checks whether the machine has an antivirus: the hourly check is turned on if one is found, off otherwise. A setting changed by hand is never overwritten.
+- New: when real-time protection is off and the antivirus allows it, the dashboard offers to turn it on or to ignore it. Ignoring is reversible: the enable action stays available. Microsoft Defender and ClamAV on-access scanning (clamonacc) are supported; protection turned off by a Windows Group Policy is not offered for re-enabling.
+- Security: real-time protection cannot be turned off from the dashboard. No command allows it -- it remains something to do on the machine itself.
+- New: on a Linux machine without an antivirus, the machine's page offers to install ClamAV -- a discreet offer, never automatic, that can be dismissed. The install stays light: on-demand scanning and signature updates, without the resident service that takes around 1 GB of memory. No repository is ever added: if ClamAV is not available from the machine's repositories (Red Hat without EPEL, for instance), nothing is offered.
+- New: antivirus monitoring can be turned off for the whole installation from the Admin page. No check or offer is made at all then.
+- Fix: the Antivirus card buttons (check, quick scan, full scan) were displayed without their styling.
+- Requires agent 0.12.0, which machines pick up on their own through automatic agent updates.
 
 ### v0.14.0 — 2026-09-11 — Antivirus health and remote scans
 

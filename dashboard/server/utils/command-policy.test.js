@@ -32,5 +32,13 @@ assert.equal(validateCommandPayload("ANTIVIRUS_SCAN", { scanType: "quick", path:
 assert.equal(validateCommandPayload("ANTIVIRUS_SCAN", { scanType: "quick", path: "/home/../etc" }).ok, false);
 assert.equal(validateCommandPayload("ANTIVIRUS_SCAN", { scanType: "quick", path: "/tmp; rm -rf /" }).ok, false);
 assert.equal(validateCommandPayload("ANTIVIRUS_SCAN", { scanType: "quick", path: "relative" }).ok, false);
+assert.equal(validateCommandPayload("ANTIVIRUS_ENABLE_REALTIME").ok, true);
+assert.equal(validateCommandPayload("ANTIVIRUS_ENABLE_REALTIME", { enabled: false }).ok, false);
+// Real-time protection can never be turned off from the dashboard. Adding such
+// a command means deleting this line on purpose.
+assert.equal(validateCommandPayload("ANTIVIRUS_DISABLE_REALTIME").ok, false);
+assert.equal(validateCommandPayload("ANTIVIRUS_INSTALL").ok, true);
+// The package list lives in the agent: a name sent from the dashboard is refused.
+assert.equal(validateCommandPayload("ANTIVIRUS_INSTALL", { name: "nmap" }).ok, false);
 
 console.log("command-policy tests passed");

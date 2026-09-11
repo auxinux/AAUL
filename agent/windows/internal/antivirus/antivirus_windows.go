@@ -50,6 +50,8 @@ if ($status) {
     $out.fullScanEndTime = $status.FullScanEndTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
   }
 }
+$policy = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection' -Name DisableRealtimeMonitoring
+$out.realtimePolicyDisabled = [bool]($policy -and $policy.DisableRealtimeMonitoring -eq 1)
 $names = @{}
 foreach ($threat in @(Get-MpThreat)) { $names[[string]$threat.ThreatID] = $threat }
 $threats = @()
@@ -171,4 +173,44 @@ func Scan(scanType string) (map[string]any, error) {
 	finished := time.Now()
 	logs.Append("[antivirus] scan %s finished: %d threat(s)", normalized, len(payload.Threats))
 	return buildScanResult(normalized, "Microsoft Defender", started, finished, payload.Threats), nil
+}
+
+// policyBlockMarker is thrown by enableRealtimeScript when a Group Policy
+// disables real-time monitoring. PowerShell writes its errors in the console
+// code page, so the French message is built here rather than in the script.
+const policyBlockMarker = "AAUL_POLICY_BLOCK"
+
+// enableRealtimeScript only ever turns protection on. There is no script — and
+// no command — to turn it off: that has to be done on the machine itself.
+const enableRealtimeScript = `
+$ErrorActionPreference = 'Stop'
+$policy = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection' -Name DisableRealtimeMonitoring -ErrorAction SilentlyContinue
+if ($policy -and $policy.DisableRealtimeMonitoring -eq 1) { throw 'AAUL_POLICY_BLOCK' }
+Set-MpPreference -DisableRealtimeMonitoring $false
+`
+
+// EnableRealtime turns Defender's real-time protection on and returns the
+// resulting status, so the dashboard shows the outcome without a second call.
+func EnableRealtime() (map[string]any, error) {
+	if _, err := runPowerShell(enableRealtimeScript, statusTimeout); err != nil {
+		if strings.Contains(err.Error(), policyBlockMarker) {
+			return nil, fmt.Errorf("la protection en temps réel est désactivée par une stratégie de groupe : elle doit être réactivée dans cette stratégie")
+		}
+		return nil, fmt.Errorf("activation de la protection en temps réel impossible: %w", err)
+	}
+
+	// Defender applies the preference asynchronously: give it a few seconds
+	// before concluding that it did not take.
+	for attempt := 0; attempt < 5; attempt++ {
+		status, err := Status()
+		if err != nil {
+			return nil, err
+		}
+		if enabled, _ := status["realtimeEnabled"].(bool); enabled {
+			logs.Append("[antivirus] real-time protection enabled")
+			return status, nil
+		}
+		time.Sleep(2 * time.Second)
+	}
+	return nil, fmt.Errorf("Defender a accepté la commande mais la protection en temps réel reste inactive — un autre antivirus la bloque peut-être")
 }

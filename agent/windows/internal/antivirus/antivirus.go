@@ -28,6 +28,7 @@ type rawStatus struct {
 	AMServiceEnabled          bool         `json:"amServiceEnabled"`
 	AntivirusEnabled          bool         `json:"antivirusEnabled"`
 	RealTimeProtectionEnabled bool         `json:"realTimeProtectionEnabled"`
+	RealtimePolicyDisabled    bool         `json:"realtimePolicyDisabled"`
 	SignatureVersion          string       `json:"signatureVersion"`
 	SignatureLastUpdated      string       `json:"signatureLastUpdated"`
 	SignatureAge              *int         `json:"signatureAge"`
@@ -162,6 +163,9 @@ func buildStatus(raw rawStatus, now time.Time) map[string]any {
 	switch {
 	case defenderActive:
 		applyDefender(status, raw)
+		// Only Defender itself can be switched on from here, and never against
+		// a Group Policy that turned it off: that is the policy's call.
+		status["realtimeFixable"] = !raw.RealTimeProtectionEnabled && !raw.RealtimePolicyDisabled
 	case thirdParty != nil:
 		enabled, upToDate := decodeProductState(thirdParty.ProductState)
 		status["installed"] = true
@@ -230,6 +234,7 @@ func emptyStatus(now time.Time) map[string]any {
 		"version":            nil,
 		"enabled":            false,
 		"realtimeEnabled":    false,
+		"realtimeFixable":    false,
 		"daemonRunning":      false,
 		"autoUpdateEnabled":  false,
 		"signatureVersion":   nil,
