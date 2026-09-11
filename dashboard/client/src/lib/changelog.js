@@ -18,6 +18,30 @@
  */
 export const CHANGELOG = [
   {
+    version: "0.14.0",
+    date: "2026-09-11",
+    title: {
+      fr: "Santé de l'antivirus et scan à distance",
+      en: "Antivirus health and remote scans",
+    },
+    changes: {
+      fr: [
+        "Nouveau : la fiche de chaque machine affiche la santé de son antivirus — produit, protection en temps réel, fraîcheur des signatures, dernier scan et menaces détectées — avec la raison de chaque alerte. ClamAV sous Linux, Microsoft Defender sous Windows, XProtect sous macOS. Une suite tierce qui remplace Defender est reconnue comme telle au lieu d'être signalée « aucun antivirus ».",
+        "Nouveau : un scan rapide ou complet peut être lancé à distance depuis la fiche machine. Un scan complet peut durer des heures : il n'est plus déclaré en échec au bout de 30 minutes.",
+        "Correctif : l'intervalle de contact des agents pouvait être réglé sous 5 secondes, ce qui figeait le tableau de bord. Le minimum de 5 secondes s'applique désormais au réglage global comme aux nouvelles installations, et les agents l'imposent aussi eux-mêmes.",
+        "Sécurité : lorsqu'un plugin d'isolation multi-tenant est installé, la configuration du serveur, la gestion des plugins, les notifications et les réglages globaux sont réservés à l'administrateur système. Les événements en temps réel d'une machine ne sont plus envoyés qu'aux utilisateurs autorisés à la voir.",
+        "Nécessite l'agent 0.11.0, que les machines récupèrent d'elles-mêmes par la mise à jour automatique des agents.",
+      ],
+      en: [
+        "New: each machine's page shows the health of its antivirus -- product, real-time protection, signature freshness, last scan and detected threats -- with the reason behind every alert. ClamAV on Linux, Microsoft Defender on Windows, XProtect on macOS. A third-party suite that replaces Defender is recognised as such instead of being reported as \"no antivirus\".",
+        "New: a quick or full scan can be started remotely from the machine's page. A full scan can take hours: it is no longer reported as failed after 30 minutes.",
+        "Fix: the agent check-in interval could be set below 5 seconds, which froze the dashboard. The 5-second minimum now applies to the global setting and to new installs alike, and the agents enforce it themselves as well.",
+        "Security: when a multi-tenant isolation plugin is installed, server configuration, plugin management, notifications and global settings are restricted to the system administrator. A machine's real-time events are only sent to users allowed to see it.",
+        "Requires agent 0.11.0, which machines pick up on their own through automatic agent updates.",
+      ],
+    },
+  },
+  {
     version: "0.13.8",
     date: "2026-09-03",
     title: {
