@@ -584,6 +584,7 @@ const translations = {
       installDismissedHint: "ClamAV can be installed on this machine.",
       installStillRunning: "The installation is still running on the machine. The card will update once it finishes.",
       installedOk: "ClamAV is installed.",
+      autoCheckNoAntivirus: "No antivirus on this machine: nothing to check. It turns back on by itself once an antivirus is detected.",
       settingTitle: "Antivirus monitoring",
       settingHint: "Hourly health checks, detection on first contact, and the offers to turn on real-time protection or install ClamAV. Turn it off to stop all of it across the installation."
     },
@@ -1174,6 +1175,7 @@ const translations = {
       installDismissedHint: "ClamAV peut être installé sur cette machine.",
       installStillRunning: "L'installation se poursuit sur la machine. La carte se mettra à jour une fois terminée.",
       installedOk: "ClamAV est installé.",
+      autoCheckNoAntivirus: "Aucun antivirus sur cette machine : rien à vérifier. Elle se réactive d'elle-même dès qu'un antivirus est détecté.",
       settingTitle: "Surveillance de l'antivirus",
       settingHint: "Vérification horaire, détection au premier contact et propositions d'activer le temps réel ou d'installer ClamAV. Désactivez-la pour tout arrêter sur l'ensemble de l'installation."
     },

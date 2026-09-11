@@ -127,6 +127,8 @@ export default function AgentDetails() {
   const [antivirusInstallDismissed, setAntivirusInstallDismissed] = useState(false);
   // Instance-wide switch from Admin: off means no checks and no offers at all.
   const [antivirusMonitoringEnabled, setAntivirusMonitoringEnabled] = useState(true);
+  // No antivirus, nothing to check hourly: the toggle is locked off.
+  const antivirusMissing = antivirus?.installed === false;
 
   const saveMonitor = async (enabled) => {
     setMonitorSaving(true);
@@ -277,7 +279,16 @@ export default function AgentDetails() {
         setAntivirusError(command.errorMessage || t("errors.commandFailed"));
         return;
       }
-      setAntivirus(command.result || null);
+      const next = command.result || null;
+      // Mirrors the server: no antivirus forces the hourly check off, one
+      // appearing (or the very first answer) turns it on, otherwise it holds.
+      setAntivirusAutoCheck((current) => {
+        if (!next) return current;
+        if (next.installed === false) return false;
+        if (current === null || antivirus?.installed === false) return true;
+        return current;
+      });
+      setAntivirus(next);
       setAntivirusCheckedAt(new Date().toISOString());
     } catch (err) {
       setAntivirusError(err.message || t("errors.commandFailed"));
@@ -1090,11 +1101,16 @@ export default function AgentDetails() {
               </div>
             )}
 
-            <label className="flex items-center gap-4 cursor-pointer group p-3 rounded-xl hover:bg-white/5 transition-colors">
+            <label
+              className={`flex items-center gap-4 group p-3 rounded-xl transition-colors ${
+                antivirusMissing ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:bg-white/5"
+              }`}
+            >
               <div className="relative shrink-0">
                 <input
                   type="checkbox"
-                  checked={antivirusAutoCheck === true}
+                  checked={antivirusAutoCheck === true && !antivirusMissing}
+                  disabled={antivirusMissing}
                   onChange={(e) => saveAntivirusSettings({ autoCheck: e.target.checked })}
                   className="peer sr-only"
                 />
@@ -1105,8 +1121,12 @@ export default function AgentDetails() {
                 <span className="text-sm font-bold text-slate-300 group-hover:text-white transition-colors">
                   {t("antivirus.autoCheck")}
                 </span>
-                {antivirusAutoCheck === null && (
-                  <p className="text-[10px] text-slate-500 leading-relaxed">{t("antivirus.autoCheckPending")}</p>
+                {antivirusMissing ? (
+                  <p className="text-[10px] text-slate-500 leading-relaxed">{t("antivirus.autoCheckNoAntivirus")}</p>
+                ) : (
+                  antivirusAutoCheck === null && (
+                    <p className="text-[10px] text-slate-500 leading-relaxed">{t("antivirus.autoCheckPending")}</p>
+                  )
                 )}
               </div>
             </label>

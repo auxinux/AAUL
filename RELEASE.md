@@ -1,5 +1,5 @@
 ---
-dashboard: 0.15.0
+dashboard: 0.15.1
 agent: 0.12.0
 date: 2026-09-11
 ---
@@ -16,7 +16,7 @@ Ce fichier est la référence de version consultée par chaque installation AAUL
 
 | Composant / Component | Version |
 |-----------------------|---------|
-| Dashboard | `0.15.0` |
+| Dashboard | `0.15.1` |
 | Agent     | `0.12.0` |
 
 ```bash
@@ -24,6 +24,11 @@ cd ~/AAUL && git pull && ./install.sh
 ```
 
 ## Français
+
+### v0.15.1 — 2026-09-11 — Vérification horaire sans antivirus
+
+- Correctif : sur une machine sans antivirus, la vérification toutes les 60 minutes pouvait être activée alors qu'il n'y avait rien à vérifier. Elle est désormais désactivée et verrouillée tant qu'aucun antivirus n'est détecté.
+- Si un antivirus apparaît ensuite — installé par AAUL, ou à la main puis détecté par une vérification — la vérification horaire se réactive d'elle-même. Tant qu'un antivirus est présent, le réglage choisi à la main est conservé.
 
 ### v0.15.0 — 2026-09-11 — Surveillance de l'antivirus : vérification horaire, temps réel et ClamAV
 
@@ -259,6 +264,11 @@ cd ~/AAUL && git pull && ./install.sh
 - Tableau de bord temps réel (SSE).
 
 ## English
+
+### v0.15.1 — 2026-09-11 — Hourly check without an antivirus
+
+- Fix: on a machine without an antivirus, the 60-minute check could be turned on although there was nothing to check. It is now off and locked for as long as no antivirus is detected.
+- If an antivirus shows up later -- installed through AAUL, or by hand and then picked up by a check -- the hourly check turns itself back on. While an antivirus is present, a setting chosen by hand is kept.
 
 ### v0.15.0 — 2026-09-11 — Antivirus monitoring: hourly checks, real-time protection and ClamAV
 

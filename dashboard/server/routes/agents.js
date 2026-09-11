@@ -1402,11 +1402,27 @@ router.put("/:id/antivirus/settings", requireAdmin, async (req, res) => {
     res.status(400).json({ error: `${invalid[0]} must be a boolean` });
     return;
   }
-  const agent = await dbOps.get("SELECT id FROM agents WHERE id = ?", [req.params.id]);
+  const agent = await dbOps.get("SELECT id, antivirus_json FROM agents WHERE id = ?", [
+    req.params.id
+  ]);
   // AAUL-Cloud: isolation multi-tenant
   if (!agent || !(await applyAgentFilters(agent, req))) {
     res.status(404).json({ error: "Agent not found" });
     return;
+  }
+  // No antivirus, nothing to check hourly: the toggle is locked off. Before the
+  // first check nothing is known yet, so the operator's choice is taken.
+  if (changes.some(([key, value]) => key === "autoCheck" && value === true)) {
+    let installed = null;
+    try {
+      installed = JSON.parse(agent.antivirus_json || "null")?.installed ?? null;
+    } catch {
+      installed = null;
+    }
+    if (installed === false) {
+      res.status(409).json({ error: "No antivirus on this machine: nothing to check hourly" });
+      return;
+    }
   }
   for (const [key, value] of changes) {
     await dbOps.run(`UPDATE agents SET ${ANTIVIRUS_SETTING_COLUMNS[key]} = ? WHERE id = ?`, [

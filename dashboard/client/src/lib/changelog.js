@@ -18,6 +18,24 @@
  */
 export const CHANGELOG = [
   {
+    version: "0.15.1",
+    date: "2026-09-11",
+    title: {
+      fr: "Vérification horaire sans antivirus",
+      en: "Hourly check without an antivirus",
+    },
+    changes: {
+      fr: [
+        "Correctif : sur une machine sans antivirus, la vérification toutes les 60 minutes pouvait être activée alors qu'il n'y avait rien à vérifier. Elle est désormais désactivée et verrouillée tant qu'aucun antivirus n'est détecté.",
+        "Si un antivirus apparaît ensuite — installé par AAUL, ou à la main puis détecté par une vérification — la vérification horaire se réactive d'elle-même. Tant qu'un antivirus est présent, le réglage choisi à la main est conservé.",
+      ],
+      en: [
+        "Fix: on a machine without an antivirus, the 60-minute check could be turned on although there was nothing to check. It is now off and locked for as long as no antivirus is detected.",
+        "If an antivirus shows up later -- installed through AAUL, or by hand and then picked up by a check -- the hourly check turns itself back on. While an antivirus is present, a setting chosen by hand is kept.",
+      ],
+    },
+  },
+  {
     version: "0.15.0",
     date: "2026-09-11",
     title: {

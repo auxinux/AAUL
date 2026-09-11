@@ -682,17 +682,24 @@ router.post("/command-result", requireAgentAuth, async (req, res) => {
       "UPDATE agents SET antivirus_json = ?, antivirus_checked_at = ? WHERE id = ?",
       [JSON.stringify(body.result), now, req.agent.id]
     );
-    // Installing an antivirus is a clear enough signal that it should be
-    // watched: the hourly check goes on, even if discovery had turned it off.
-    if (command.type === "ANTIVIRUS_INSTALL") {
+    // The hourly check only makes sense with something to check. No antivirus
+    // forces it off, and the toggle stays locked. An antivirus appearing —
+    // installed through AAUL, or by hand and then detected — restores the
+    // default (on). While an antivirus is present, the operator's choice holds.
+    let previous = null;
+    try {
+      previous = JSON.parse(req.agent.antivirus_json || "null");
+    } catch {
+      previous = null;
+    }
+    const appeared = previous !== null && previous.installed === false && body.result.installed;
+    const undecided =
+      req.agent.antivirus_auto_check === null || req.agent.antivirus_auto_check === undefined;
+    if (!body.result.installed) {
+      await dbOps.run("UPDATE agents SET antivirus_auto_check = 0 WHERE id = ?", [req.agent.id]);
+    } else if (undecided || appeared) {
       await dbOps.run("UPDATE agents SET antivirus_auto_check = 1 WHERE id = ?", [req.agent.id]);
     }
-    // The first answer ever decides the hourly check: on with an antivirus,
-    // off without one. The IS NULL guard means an operator's choice always wins.
-    await dbOps.run(
-      "UPDATE agents SET antivirus_auto_check = ? WHERE id = ? AND antivirus_auto_check IS NULL",
-      [body.result.installed ? 1 : 0, req.agent.id]
-    );
     // Protection is back on: if it lapses again later, that deserves a fresh
     // prompt rather than an old dismissal.
     if (body.result.realtimeEnabled) {
