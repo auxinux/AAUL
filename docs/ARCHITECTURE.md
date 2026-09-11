@@ -181,6 +181,12 @@ Typical loop:
 3. agent executes the command locally
 4. agent reports the result to `/api/agent/command-result`
 
+Each machine has its own queue: up to ten commands wait their turn and run one
+at a time, oldest first. An identical command already waiting is not queued
+twice, and nothing may follow an `UNINSTALL`. The agent polls again as soon as a
+command finishes, so a queue runs back to back instead of one command per poll
+interval.
+
 The poll response also carries configuration the agent applies without a command
 round-trip: `localWeb` (local UI settings) and `logs` (retention policy). The
 poll request carries `metrics` and `logStats`, which the dashboard persists on

@@ -19,6 +19,7 @@ The dashboard can:
 
 - register agents and generate installation commands
 - queue commands such as `RUN_NOW`, `SET_SCHEDULE`, `UPDATE_AGENT`, `UNINSTALL`
+  (up to ten per machine, run one after another in the order they were sent)
 - display machine state, package information, logs, and last-seen activity
 - show live CPU / memory / disk usage per host, with 24-hour history
 - aggregate pending updates across the whole fleet and flag the security ones

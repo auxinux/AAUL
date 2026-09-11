@@ -14,6 +14,7 @@ import path from "path";
 import { execFileSync } from "child_process";
 import readline from "readline/promises";
 import { fileURLToPath } from "url";
+import { checkCommandQueue } from "./utils/command-queue.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.join(__dirname, "..", "..");
@@ -389,19 +390,16 @@ async function findAgent(agentId) {
   return agent;
 }
 
-async function getPendingCommand(agentId) {
-  const runtime = await ensureDb();
-  return runtime.dbOps.get(
-    "SELECT id, type, status FROM commands WHERE agent_id = ? AND status IN ('QUEUED', 'IN_PROGRESS') ORDER BY created_at ASC LIMIT 1",
-    [agentId]
-  );
-}
-
 async function queueAgentCommand(agentId, type, payload = null) {
   const runtime = await ensureDb();
-  const pending = await getPendingCommand(agentId);
-  if (pending) {
-    fail(`Agent already has a pending command (${pending.type}, ${pending.status}).`);
+  const queue = await checkCommandQueue(runtime.dbOps, agentId, type, payload);
+  if (queue.error) {
+    fail(`${queue.error}.`);
+  }
+  if (queue.duplicateId) {
+    console.log(`${type} is already queued for agent ${agentId}`);
+    console.log(`Command ID: ${queue.duplicateId}`);
+    return;
   }
 
   const commandId = crypto.randomUUID();

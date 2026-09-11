@@ -41,4 +41,22 @@ assert.equal(validateCommandPayload("ANTIVIRUS_INSTALL").ok, true);
 // The package list lives in the agent: a name sent from the dashboard is refused.
 assert.equal(validateCommandPayload("ANTIVIRUS_INSTALL", { name: "nmap" }).ok, false);
 
+const { checkCommandQueue, MAX_PENDING_COMMANDS } = await import("./command-queue.js");
+const queueOf = (rows) => ({ all: async () => rows });
+const waiting = (type, payload = null, status = "QUEUED") =>
+  ({ id: `${type}-${status}`, type, status, payload_json: payload ? JSON.stringify(payload) : null });
+assert.deepEqual(await checkCommandQueue(queueOf([]), "a", "RUN_NOW", null), {});
+assert.equal((await checkCommandQueue(queueOf([waiting("UNINSTALL")]), "a", "FETCH_INFO", null)).status, 409);
+assert.equal((await checkCommandQueue(queueOf([waiting("UNINSTALL", null, "IN_PROGRESS")]), "a", "FETCH_INFO", null)).status, 409);
+assert.equal(
+  (await checkCommandQueue(queueOf([waiting("ANTIVIRUS_SCAN", { scanType: "full" })]), "a", "ANTIVIRUS_SCAN", { scanType: "full" })).duplicateId,
+  "ANTIVIRUS_SCAN-QUEUED"
+);
+// Same type, different payload: a different request, so it is queued.
+assert.deepEqual(await checkCommandQueue(queueOf([waiting("ANTIVIRUS_SCAN", { scanType: "quick" })]), "a", "ANTIVIRUS_SCAN", { scanType: "full" }), {});
+// The same command already RUNNING may be queued again behind itself.
+assert.deepEqual(await checkCommandQueue(queueOf([waiting("FETCH_INFO", null, "IN_PROGRESS")]), "a", "FETCH_INFO", null), {});
+const full = Array.from({ length: MAX_PENDING_COMMANDS }, (_, i) => ({ ...waiting("RUN_NOW"), id: `c${i}`, type: `T${i}` }));
+assert.equal((await checkCommandQueue(queueOf(full), "a", "FETCH_INFO", null)).status, 409);
+
 console.log("command-policy tests passed");

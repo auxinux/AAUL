@@ -84,6 +84,10 @@ type Poller struct {
 	// UNINSTALL.
 	stop     chan struct{}
 	stopOnce sync.Once
+	// wake is signalled when a command finishes, so the loop polls again at
+	// once and a queue of commands runs back to back instead of one per
+	// poll interval.
+	wake chan struct{}
 	// restartRequested is set when a command needs the service to come back
 	// with a new binary.
 	restartRequested bool
@@ -92,7 +96,7 @@ type Poller struct {
 
 // New creates a poller.
 func New() *Poller {
-	return &Poller{stop: make(chan struct{})}
+	return &Poller{stop: make(chan struct{}), wake: make(chan struct{}, 1)}
 }
 
 // Stop unwinds the loop. Safe to call more than once.
@@ -135,6 +139,23 @@ func (p *Poller) wait(interval time.Duration) bool {
 		return false
 	case <-timer.C:
 		return true
+	case <-p.wake:
+		// A stop that raced the wake-up still wins.
+		select {
+		case <-p.stop:
+			return false
+		default:
+			return true
+		}
+	}
+}
+
+// signalWake asks the loop to poll again now. Non-blocking: one pending
+// wake-up is enough, however many commands finished meanwhile.
+func (p *Poller) signalWake() {
+	select {
+	case p.wake <- struct{}{}:
+	default:
 	}
 }
 
@@ -198,6 +219,10 @@ func (p *Poller) pollOnce(cfg *config.Config, async bool) error {
 
 	if p.commandMu.TryLock() {
 		go func(command commands.Command) {
+			// Deferred in this order so the lock is released before the loop is
+			// woken: woken while still locked, the next poll would look busy
+			// and the rest of the queue would wait a whole interval.
+			defer p.signalWake()
 			defer p.commandMu.Unlock()
 			p.execute(client, cfg, command)
 		}(*response.Command)

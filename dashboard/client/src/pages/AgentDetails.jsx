@@ -236,14 +236,17 @@ export default function AgentDetails() {
   }, [id]);
 
   const pollCommand = async (commandId) => {
+    let lastStatus = null;
     for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt += 1) {
       const data = await apiFetch(`/api/agents/${id}/commands/${commandId}`);
+      lastStatus = data.command?.status || lastStatus;
       if (data.command?.status === "DONE" || data.command?.status === "ERROR") {
         return data.command;
       }
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
     }
-    throw new Error(t("errors.commandTimeout"));
+    // Still waiting behind other commands is not a failure of this one.
+    throw new Error(lastStatus === "QUEUED" ? t("errors.commandQueued") : t("errors.commandTimeout"));
   };
 
   const refreshInfo = async () => {

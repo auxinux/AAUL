@@ -7,6 +7,7 @@ import { dbOps } from "../db/index.js";
 import { requireAdmin } from "../middleware/auth.js";
 import { broadcastSSE } from "../utils/sse.js";
 import { GROUP_COMMAND_TYPES, validateCommandPayload } from "../utils/command-policy.js";
+import { checkCommandQueue } from "../utils/command-queue.js";
 import { applyAgentFilters } from "../plugins/plugin-loader.js";
 
 const router = express.Router();
@@ -79,7 +80,9 @@ router.delete("/:id", requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 
-// Queue an action for every agent in the group (skips agents already busy).
+// Queue an action for every agent in the group. It joins each machine's queue;
+// a machine is skipped when the same action is already waiting there, when it
+// is being uninstalled, or when its queue is full.
 // AAUL-Cloud: seuls les agents autorisés par les filtres de plugins reçoivent la commande.
 router.post("/:id/action", requireAdmin, async (req, res) => {
   const { type } = req.body || {};
@@ -97,11 +100,8 @@ router.post("/:id/action", requireAdmin, async (req, res) => {
   for (const agent of agents) {
     // AAUL-Cloud: ne pas exécuter de commande sur un agent exclu par les filtres
     if (!(await applyAgentFilters(agent, req))) continue;
-    const pending = await dbOps.get(
-      "SELECT id FROM commands WHERE agent_id = ? AND status IN ('QUEUED','IN_PROGRESS') LIMIT 1",
-      [agent.id]
-    );
-    if (pending) continue;
+    const queue = await checkCommandQueue(dbOps, agent.id, type, null);
+    if (queue.error || queue.duplicateId) continue;
     const now = new Date().toISOString();
     await dbOps.run(
       "INSERT INTO commands (id, agent_id, type, payload_json, status, created_at, updated_at) VALUES (?, ?, ?, NULL, 'QUEUED', ?, ?)",

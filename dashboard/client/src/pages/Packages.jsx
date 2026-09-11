@@ -13,14 +13,19 @@ async function runCommand(id, path, body) {
     body: body ? JSON.stringify(body) : undefined
   });
   const commandId = res.commandId;
+  let lastStatus = null;
   for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt += 1) {
     const data = await apiFetch(`/api/agents/${id}/commands/${commandId}`);
+    lastStatus = data.command?.status || lastStatus;
     if (data.command?.status === "DONE" || data.command?.status === "ERROR") {
       return data.command;
     }
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
-  throw new Error("Délai dépassé");
+  // Still waiting behind other commands is not a failure of this one.
+  throw new Error(
+    lastStatus === "QUEUED" ? "La commande attend son tour dans la file de la machine." : "Délai dépassé"
+  );
 }
 
 export default function Packages() {

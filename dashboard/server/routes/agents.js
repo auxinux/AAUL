@@ -13,6 +13,7 @@ import { validatePackageName, validateSearchQuery } from "../utils/packages-poli
 import { broadcastSSE } from "../utils/sse.js";
 import { getActorUserId, recordAuditEvent } from "../utils/audit.js";
 import { RETRYABLE_COMMAND_TYPES, validateCommandPayload } from "../utils/command-policy.js";
+import { checkCommandQueue } from "../utils/command-queue.js";
 import { applyAgentFilters, triggerHook } from "../plugins/plugin-loader.js";
 import { getSetting } from "../utils/settings.js";
 
@@ -115,9 +116,14 @@ async function createCommand(agentId, type, payload, req = null) {
   if (req && !(await applyAgentFilters(agent, req))) {
     return { error: "Agent not found", status: 404 };
   }
-  const existing = await getPendingCommand(agentId);
-  if (existing) {
-    return { error: "Command already pending", status: 409 };
+  const queue = await checkCommandQueue(dbOps, agentId, type, policy.payload);
+  if (queue.error) {
+    return { error: queue.error, status: queue.status };
+  }
+  // The same request already waiting: the caller gets the existing command
+  // back and follows it as if it were its own.
+  if (queue.duplicateId) {
+    return { id: queue.duplicateId, deduplicated: true };
   }
   const now = new Date().toISOString();
   const id = uuidv4();
@@ -245,6 +251,14 @@ router.get("/", requireAdmin, async (req, res) => {
     }
   }
   agents = filtered;
+  // One query for the whole fleet rather than one per machine.
+  const pendingCounts = new Map(
+    (
+      await dbOps.all(
+        "SELECT agent_id, COUNT(*) AS n FROM commands WHERE status IN ('QUEUED','IN_PROGRESS') GROUP BY agent_id"
+      )
+    ).map((row) => [row.agent_id, row.n])
+  );
   const enriched = await Promise.all(
     agents.map(async (agent) => {
       const pending = await getPendingCommand(agent.id);
@@ -329,6 +343,7 @@ router.get("/", requireAdmin, async (req, res) => {
               status: pending.status
             }
           : null,
+        pendingCount: pendingCounts.get(agent.id) || 0,
         createdAt: agent.created_at
       };
     })
@@ -519,10 +534,8 @@ router.post("/update-outdated", requireAdmin, async (req, res) => {
   agents = filtered;
   const results = await Promise.all(
     agents.map(async (agent) => {
-      const existing = await getPendingCommand(agent.id);
-      if (existing) {
-        return { id: agent.id, skipped: true };
-      }
+      // Joins the machine's queue behind whatever it is doing; an update
+      // already waiting is not queued twice (createCommand returns it).
       const result = await createCommand(agent.id, "UPDATE_AGENT", null, req);
       return { id: agent.id, commandId: result.id, error: result.error || null };
     })
@@ -1069,10 +1082,9 @@ router.get("/metrics/summary", requireAdmin, async (req, res) => {
 // ---------------------------------------------------------------------------
 
 // Queue PACKAGES_LIST on every agent so the fleet view has fresh
-// installed-package data. Agents with a pending command are skipped.
-// NOTE: the agent serializes commands (one at a time), so we enqueue a single
-// command per agent here. CHECK_UPDATES is triggered separately via the
-// existing `/commands/check-updates-all` endpoint once the list scan completes.
+// installed-package data. It joins each machine's queue behind whatever is
+// already there. CHECK_UPDATES is triggered separately via the existing
+// `/commands/check-updates-all` endpoint once the list scan completes.
 router.post("/packages/scan-all", requireAdmin, async (req, res) => {
   const allAgents = await dbOps.all("SELECT id FROM agents");
   const agents = [];

@@ -68,7 +68,8 @@ const translations = {
       saveFailed: "Could not save your changes.",
       loadLogContent: "Failed to load log content",
       commandFailed: "Command failed",
-      commandTimeout: "Command timed out. The agent may not have polled yet."
+      commandTimeout: "Command timed out. The agent may not have polled yet.",
+      commandQueued: "The command is waiting its turn in the machine's queue; it will run after the ones ahead of it."
     },
     details: {
       title: "Agent details",
@@ -126,6 +127,7 @@ const translations = {
       deleteUser: "Delete user {name}?"
     },
     dashboard: {
+      queuedMore: "+{n} queued",
       layoutMode: "View Mode",
       layoutSimple: "Simple",
       updatesShort: "updates",
@@ -659,7 +661,8 @@ const translations = {
       saveFailed: "Impossible d’enregistrer vos modifications.",
       loadLogContent: "Impossible de charger le contenu",
       commandFailed: "Commande en erreur",
-      commandTimeout: "Delai depasse. L'agent n'a peut-etre pas encore repondu."
+      commandTimeout: "Delai depasse. L'agent n'a peut-etre pas encore repondu.",
+      commandQueued: "La commande attend son tour dans la file de la machine : elle s'exécutera après celles qui la précèdent."
     },
     details: {
       title: "Details agent",
@@ -717,6 +720,7 @@ const translations = {
       deleteUser: "Supprimer l'utilisateur {name} ?"
     },
     dashboard: {
+      queuedMore: "+{n} en file",
       layoutMode: "Mode d'affichage",
       layoutSimple: "Simple",
       layoutDetailed: "Détaillé",

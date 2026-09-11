@@ -1,6 +1,6 @@
 ---
-dashboard: 0.15.1
-agent: 0.12.0
+dashboard: 0.16.0
+agent: 0.13.0
 date: 2026-09-11
 ---
 
@@ -16,14 +16,23 @@ Ce fichier est la référence de version consultée par chaque installation AAUL
 
 | Composant / Component | Version |
 |-----------------------|---------|
-| Dashboard | `0.15.1` |
-| Agent     | `0.12.0` |
+| Dashboard | `0.16.0` |
+| Agent     | `0.13.0` |
 
 ```bash
 cd ~/AAUL && git pull && ./install.sh
 ```
 
 ## Français
+
+### v0.16.0 — 2026-09-11 — File d'attente de commandes par machine
+
+- Nouveau : plusieurs commandes peuvent être envoyées à une même machine. Elles attendent leur tour dans une file et s'exécutent l'une après l'autre, dans l'ordre d'envoi, au lieu d'être refusées parce qu'une commande est déjà en cours.
+- La file compte au plus 10 commandes par machine. Une commande identique déjà en attente n'est pas ajoutée une seconde fois, et plus rien n'est accepté après une désinstallation.
+- L'agent enchaîne les commandes dès que la précédente est terminée, sans attendre son intervalle de contact.
+- Le tableau de bord indique combien de commandes attendent derrière celle en cours, et la page Tâches permet d'annuler chacune d'elles. Une commande qui attend son tour n'est plus annoncée comme un délai dépassé.
+- Les actions en masse — mise à jour des agents, vérification des mises à jour, inventaire des paquets, actions de groupe — rejoignent la file des machines occupées au lieu de les ignorer.
+- L'enchaînement immédiat nécessite l'agent 0.13.0, que les machines récupèrent d'elles-mêmes. Avec un agent plus ancien la file fonctionne aussi, à raison d'une commande par intervalle de contact.
 
 ### v0.15.1 — 2026-09-11 — Vérification horaire sans antivirus
 
@@ -264,6 +273,15 @@ cd ~/AAUL && git pull && ./install.sh
 - Tableau de bord temps réel (SSE).
 
 ## English
+
+### v0.16.0 — 2026-09-11 — Per-machine command queue
+
+- New: several commands can be sent to the same machine. They wait their turn in a queue and run one after another, in the order they were sent, instead of being refused because a command is already running.
+- The queue holds at most 10 commands per machine. An identical command already waiting is not added twice, and nothing is accepted after an uninstall.
+- The agent chains commands as soon as the previous one finishes, without waiting for its check-in interval.
+- The dashboard shows how many commands are waiting behind the running one, and the Tasks page can cancel each of them. A command waiting its turn is no longer reported as timed out.
+- Bulk actions -- agent updates, update checks, package inventory, group actions -- join the queue of busy machines instead of skipping them.
+- Chaining commands immediately requires agent 0.13.0, which machines pick up on their own. With an older agent the queue works too, one command per check-in interval.
 
 ### v0.15.1 — 2026-09-11 — Hourly check without an antivirus
 

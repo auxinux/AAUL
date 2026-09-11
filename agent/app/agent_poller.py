@@ -255,6 +255,9 @@ def apply_logs_config(response):
 # a command executes in this worker thread, so the agent stays "online" during
 # long operations like a system update instead of looking dead.
 _command_lock = threading.Lock()
+# Set when a command finishes, so the main loop polls again at once and a queue
+# of commands runs back to back instead of one per poll interval.
+_wake = threading.Event()
 
 
 def _run_command_worker(config, command):
@@ -277,6 +280,9 @@ def _run_command_worker(config, command):
             _command_lock.release()
         except RuntimeError:
             pass
+        # Only after the release: woken while still locked, the next poll would
+        # look busy and the rest of the queue would wait a whole interval.
+        _wake.set()
 
 
 def poll_once(async_commands=False):
@@ -360,7 +366,8 @@ def main():
                 poll_once(async_commands=True)
             except Exception as exc:
                 append_log(f"poll error: {exc}")
-            time.sleep(interval)
+            _wake.wait(interval)
+            _wake.clear()
     finally:
         try:
             manager = get_local_web()

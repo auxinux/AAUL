@@ -1516,6 +1516,11 @@ export default function Dashboard() {
                               <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
                                 {agent.pendingCommand.type}
                               </div>
+                              {agent.pendingCount > 1 && (
+                                <div className="text-[10px] text-slate-500">
+                                  {t("dashboard.queuedMore", { n: agent.pendingCount - 1 })}
+                                </div>
+                              )}
                             </div>
                           ) : (
                             <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600">
