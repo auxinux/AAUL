@@ -303,6 +303,9 @@ ensure_build_tools() {
 #                    dashboard/config/config.json (config production)
 #                    dashboard/*.sqlite           (base de données)
 #                    dashboard/ssl/               (certificats TLS)
+#                    dashboard/server/ssl/        (certificats TLS, chemins
+#                                                 relatifs par défaut de config.json)
+#                    dashboard/server/plugins/*/  (plugins installés depuis l'UI)
 #                    dashboard/node_modules/      (réinstallés)
 #                    dashboard/client/node_modules/
 #                    dashboard/client/dist/       (fourni puis éventuellement rebuilt)
@@ -332,10 +335,13 @@ sync_files() {
         --exclude="dashboard/.data-protection-key" \
         --exclude="dashboard/.initial-admin-password" \
         --exclude="dashboard/ssl/" \
+        --exclude="dashboard/server/ssl/" \
+        --exclude="dashboard/.release-notes-cache.md" \
         --exclude="dashboard/node_modules/" \
         --exclude="dashboard/client/node_modules/" \
         --exclude=".git/" \
         --exclude=".claude/" \
+        --filter="P dashboard/server/plugins/*/" \
         "$SRC_DIR/" "$INSTALL_DIR/"
       ok "Synchronisation rsync terminée"
     else

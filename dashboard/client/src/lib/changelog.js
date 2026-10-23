@@ -18,6 +18,24 @@
  */
 export const CHANGELOG = [
   {
+    version: "0.16.3",
+    date: "2026-10-23",
+    title: {
+      fr: "Mise à jour : certificats et plugins conservés",
+      en: "Update keeps certificates and plugins",
+    },
+    changes: {
+      fr: [
+        "Correctif : install.sh effaçait les certificats HTTPS rangés dans dashboard/server/ssl/ — l'emplacement par défaut de config.json — à chaque mise à jour. Ils sont désormais conservés.",
+        "Correctif : un plugin installé depuis la page Plugins était effacé par la mise à jour suivante. Il est désormais conservé ; les plugins livrés avec AAUL continuent d'être mis à jour.",
+      ],
+      en: [
+        "Fix: install.sh deleted the HTTPS certificates kept in dashboard/server/ssl/ -- the default location in config.json -- on every update. They are now kept.",
+        "Fix: a plugin installed from the Plugins page was deleted by the next update. It is now kept; the plugins shipped with AAUL are still updated.",
+      ],
+    },
+  },
+  {
     version: "0.16.2",
     date: "2026-10-23",
     title: {
