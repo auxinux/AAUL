@@ -1,5 +1,5 @@
 ---
-dashboard: 0.16.3
+dashboard: 0.16.4
 agent: 0.13.0
 date: 2026-10-23
 ---
@@ -16,7 +16,7 @@ Ce fichier est la référence de version consultée par chaque installation AAUL
 
 | Composant / Component | Version |
 |-----------------------|---------|
-| Dashboard | `0.16.3` |
+| Dashboard | `0.16.4` |
 | Agent     | `0.13.0` |
 
 ```bash
@@ -24,6 +24,11 @@ cd ~/AAUL && git pull && ./install.sh
 ```
 
 ## Français
+
+### v0.16.4 — 2026-10-23 — Retirer une machine qui n'existe plus
+
+- Correctif : une machine disparue ne récupère jamais sa désinstallation, qui restait en attente pour toujours sans moyen de retirer la machine de la liste. Tant qu'une désinstallation attend, le menu « … » propose désormais « Forcer le retrait de la liste ».
+- Le retrait forcé supprime la machine, ses commandes en attente et son historique de métriques. Si l'agent est encore installé quelque part, il y reste et n'est plus géré.
 
 ### v0.16.3 — 2026-10-23 — Mise à jour : certificats et plugins conservés
 
@@ -293,6 +298,11 @@ cd ~/AAUL && git pull && ./install.sh
 - Tableau de bord temps réel (SSE).
 
 ## English
+
+### v0.16.4 — 2026-10-23 — Removing a machine that no longer exists
+
+- Fix: a machine that is gone never picks up its uninstall, which stayed pending forever with no way to remove the machine from the list. While an uninstall is waiting, the "…" menu now offers "Force remove from list".
+- Force removal deletes the machine, its queued commands and its metrics history. If the agent is still installed somewhere, it stays there and is no longer managed.
 
 ### v0.16.3 — 2026-10-23 — Update keeps certificates and plugins
 

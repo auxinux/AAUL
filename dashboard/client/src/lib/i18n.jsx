@@ -187,7 +187,8 @@ const translations = {
         remove: "Remove",
         removeDevice: "Remove device",
         cancelPending: "Cancel pending",
-        cancelUninstall: "Cancel uninstall"
+        cancelUninstall: "Cancel uninstall",
+        forceRemove: "Force remove from list"
       },
       scheduleModal: {
         title: "Schedule: {name}",
@@ -217,7 +218,8 @@ const translations = {
         cancelPending: "Cancel pending command?",
         cancelUninstall: "Cancel uninstall command?",
         remove: "Remove {name}?",
-        removeDevice: "Remove {name} from the dashboard? This does not uninstall the agent."
+        removeDevice: "Remove {name} from the dashboard? This does not uninstall the agent.",
+        forceRemove: "Remove {name} from the list without waiting for the uninstall? Use this when the machine no longer exists. If the agent is still installed somewhere, it stays there and is no longer managed."
       }
     },
     logs: {
@@ -780,7 +782,8 @@ const translations = {
         remove: "Retirer",
         removeDevice: "Retirer l'appareil",
         cancelPending: "Annuler en attente",
-        cancelUninstall: "Annuler la desinstallation"
+        cancelUninstall: "Annuler la desinstallation",
+        forceRemove: "Forcer le retrait de la liste"
       },
       scheduleModal: {
         title: "Horaire : {name}",
@@ -810,7 +813,8 @@ const translations = {
         cancelPending: "Annuler la commande en attente ?",
         cancelUninstall: "Annuler la desinstallation ?",
         remove: "Retirer {name} ?",
-        removeDevice: "Retirer {name} du dashboard ? Cela ne desinstalle pas l'agent."
+        removeDevice: "Retirer {name} du dashboard ? Cela ne desinstalle pas l'agent.",
+        forceRemove: "Retirer {name} de la liste sans attendre la desinstallation ? A utiliser quand la machine n'existe plus. Si l'agent est encore installe quelque part, il y reste et n'est plus gere."
       }
     },
     logs: {

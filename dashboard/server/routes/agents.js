@@ -264,6 +264,15 @@ router.get("/", requireAdmin, async (req, res) => {
       )
     ).map((row) => [row.agent_id, row.n])
   );
+  // An uninstall can sit behind other commands, so the head of the queue
+  // (pendingCommand) does not tell whether one is waiting.
+  const uninstallPending = new Set(
+    (
+      await dbOps.all(
+        "SELECT DISTINCT agent_id FROM commands WHERE type = 'UNINSTALL' AND status IN ('QUEUED','IN_PROGRESS')"
+      )
+    ).map((row) => row.agent_id)
+  );
   const enriched = await Promise.all(
     agents.map(async (agent) => {
       const pending = await getPendingCommand(agent.id);
@@ -349,6 +358,7 @@ router.get("/", requireAdmin, async (req, res) => {
             }
           : null,
         pendingCount: pendingCounts.get(agent.id) || 0,
+        uninstallPending: uninstallPending.has(agent.id),
         createdAt: agent.created_at
       };
     })
@@ -778,6 +788,7 @@ router.delete("/:id", requireAdmin, async (req, res) => {
     return;
   }
   await dbOps.run("DELETE FROM commands WHERE agent_id = ?", [req.params.id]);
+  await dbOps.run("DELETE FROM agent_metrics WHERE agent_id = ?", [req.params.id]);
   await dbOps.run("DELETE FROM agents WHERE id = ?", [req.params.id]);
   await recordAuditEvent({
     actorUserId: getActorUserId(req),

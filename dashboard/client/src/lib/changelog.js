@@ -18,6 +18,24 @@
  */
 export const CHANGELOG = [
   {
+    version: "0.16.4",
+    date: "2026-10-23",
+    title: {
+      fr: "Retirer une machine qui n'existe plus",
+      en: "Removing a machine that no longer exists",
+    },
+    changes: {
+      fr: [
+        "Correctif : une machine disparue ne récupère jamais sa désinstallation, qui restait en attente pour toujours sans moyen de retirer la machine de la liste. Tant qu'une désinstallation attend, le menu « … » propose désormais « Forcer le retrait de la liste ».",
+        "Le retrait forcé supprime la machine, ses commandes en attente et son historique de métriques. Si l'agent est encore installé quelque part, il y reste et n'est plus géré.",
+      ],
+      en: [
+        "Fix: a machine that is gone never picks up its uninstall, which stayed pending forever with no way to remove the machine from the list. While an uninstall is waiting, the \"…\" menu now offers \"Force remove from list\".",
+        "Force removal deletes the machine, its queued commands and its metrics history. If the agent is still installed somewhere, it stays there and is no longer managed.",
+      ],
+    },
+  },
+  {
     version: "0.16.3",
     date: "2026-10-23",
     title: {

@@ -20,6 +20,7 @@ import {
   MoreHorizontal,
   Download,
   Trash2,
+  XCircle,
   ShieldCheck,
   Zap,
   Filter,
@@ -580,6 +581,23 @@ export default function Dashboard() {
       confirmLabel: agent.lastSeenAt
         ? t("dashboard.actions.removeDevice")
         : t("dashboard.actions.remove"),
+      onConfirm: async () => {
+        setConfirmDialog(null);
+        await apiFetch(`/api/agents/${agent.id}`, { method: "DELETE" });
+        await loadAgents();
+      }
+    });
+  };
+
+  // A machine that no longer exists never picks up its UNINSTALL, which would
+  // otherwise wait forever. Deleting the agent also drops its queued commands.
+  const forceRemoveAgent = (agent) => {
+    setOpenMenuId(null);
+    setConfirmDialog({
+      title: t("dashboard.actions.forceRemove"),
+      description: t("dashboard.confirm.forceRemove", { name: agent.displayName }),
+      tone: "danger",
+      confirmLabel: t("dashboard.actions.forceRemove"),
       onConfirm: async () => {
         setConfirmDialog(null);
         await apiFetch(`/api/agents/${agent.id}`, { method: "DELETE" });
@@ -1209,6 +1227,19 @@ export default function Dashboard() {
                                         <Trash2 size={14} />
                                         {t("dashboard.actions.uninstall")}
                                       </button>
+                                      {agent.uninstallPending && (
+                                        <button
+                                          type="button"
+                                          className="flex items-center gap-3 w-full rounded-xl px-3 py-2 text-sm font-medium text-red-400 hover:bg-red-500/10 transition-colors"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            forceRemoveAgent(agent);
+                                          }}
+                                        >
+                                          <XCircle size={14} />
+                                          {t("dashboard.actions.forceRemove")}
+                                        </button>
+                                      )}
                                     </>
                                   ) : (
                                     <>
@@ -1604,6 +1635,15 @@ export default function Dashboard() {
                                       <Trash2 size={16} />
                                       {t("dashboard.actions.uninstall")}
                                     </button>
+                                    {agent.uninstallPending && (
+                                      <button
+                                        className="flex items-center gap-3 w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium text-red-400 hover:bg-red-500/10 transition-colors"
+                                        onClick={() => forceRemoveAgent(agent)}
+                                      >
+                                        <XCircle size={16} />
+                                        {t("dashboard.actions.forceRemove")}
+                                      </button>
+                                    )}
                                   </>
                                 ) : (
                                   <>
