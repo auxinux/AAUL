@@ -534,7 +534,7 @@ const translations = {
       intervalLabel: "Check every",
       every: "{n} minutes",
       urlLabel: "Version source (optional)",
-      urlPlaceholder: "https://git.auxinux.ca/Auxinux/AAUL/raw/branch/main/RELEASE.md",
+      urlPlaceholder: "https://raw.githubusercontent.com/auxinux/AAUL/main/RELEASE.md",
       urlHint: "Leave empty to use the official project repository. Set it to point at an internal mirror."
     },
     antivirus: {
@@ -1127,7 +1127,7 @@ const translations = {
       intervalLabel: "Vérifier toutes les",
       every: "{n} minutes",
       urlLabel: "Source de version (facultatif)",
-      urlPlaceholder: "https://git.auxinux.ca/Auxinux/AAUL/raw/branch/main/RELEASE.md",
+      urlPlaceholder: "https://raw.githubusercontent.com/auxinux/AAUL/main/RELEASE.md",
       urlHint: "Laissez vide pour utiliser le dépôt officiel du projet. Renseignez-la pour pointer vers un miroir interne."
     },
     antivirus: {

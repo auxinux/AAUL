@@ -18,6 +18,28 @@
  */
 export const CHANGELOG = [
   {
+    version: "0.16.1",
+    date: "2026-10-23",
+    title: {
+      fr: "Vérification des nouvelles versions depuis GitHub",
+      en: "New-version check from GitHub",
+    },
+    changes: {
+      fr: [
+        "Correctif : la vérification des nouvelles versions échouait avec « HTTP 502 », car elle interrogeait encore l'ancien serveur git.auxinux.ca, qui n'existe plus. Elle lit désormais RELEASE.md sur le dépôt GitHub du projet.",
+        "Une source de version enregistrée à la main qui pointe vers l'ancien serveur est ignorée au profit du dépôt officiel, au lieu d'échouer à chaque vérification.",
+        "Un échec « HTTP 404 » précise désormais que le fichier est introuvable ou que le dépôt n'est pas public.",
+        "Les liens vers le dépôt du projet et le signalement de vulnérabilités pointent vers GitHub.",
+      ],
+      en: [
+        "Fix: the new-version check failed with \"HTTP 502\" because it still queried the former git.auxinux.ca server, which no longer exists. It now reads RELEASE.md from the project's GitHub repository.",
+        "A version source saved by hand that points at the former server is ignored in favour of the official repository, instead of failing every check.",
+        "An \"HTTP 404\" failure now says that the file was not found or that the repository is not public.",
+        "Links to the project repository and to vulnerability reporting point at GitHub.",
+      ],
+    },
+  },
+  {
     version: "0.16.0",
     date: "2026-09-11",
     title: {

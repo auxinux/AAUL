@@ -1,7 +1,7 @@
 ---
-dashboard: 0.16.0
+dashboard: 0.16.1
 agent: 0.13.0
-date: 2026-09-11
+date: 2026-10-23
 ---
 
 <!--
@@ -16,7 +16,7 @@ Ce fichier est la référence de version consultée par chaque installation AAUL
 
 | Composant / Component | Version |
 |-----------------------|---------|
-| Dashboard | `0.16.0` |
+| Dashboard | `0.16.1` |
 | Agent     | `0.13.0` |
 
 ```bash
@@ -24,6 +24,13 @@ cd ~/AAUL && git pull && ./install.sh
 ```
 
 ## Français
+
+### v0.16.1 — 2026-10-23 — Vérification des nouvelles versions depuis GitHub
+
+- Correctif : la vérification des nouvelles versions échouait avec « HTTP 502 », car elle interrogeait encore l'ancien serveur git.auxinux.ca, qui n'existe plus. Elle lit désormais RELEASE.md sur le dépôt GitHub du projet.
+- Une source de version enregistrée à la main qui pointe vers l'ancien serveur est ignorée au profit du dépôt officiel, au lieu d'échouer à chaque vérification.
+- Un échec « HTTP 404 » précise désormais que le fichier est introuvable ou que le dépôt n'est pas public.
+- Les liens vers le dépôt du projet et le signalement de vulnérabilités pointent vers GitHub.
 
 ### v0.16.0 — 2026-09-11 — File d'attente de commandes par machine
 
@@ -273,6 +280,13 @@ cd ~/AAUL && git pull && ./install.sh
 - Tableau de bord temps réel (SSE).
 
 ## English
+
+### v0.16.1 — 2026-10-23 — New-version check from GitHub
+
+- Fix: the new-version check failed with "HTTP 502" because it still queried the former git.auxinux.ca server, which no longer exists. It now reads RELEASE.md from the project's GitHub repository.
+- A version source saved by hand that points at the former server is ignored in favour of the official repository, instead of failing every check.
+- An "HTTP 404" failure now says that the file was not found or that the repository is not public.
+- Links to the project repository and to vulnerability reporting point at GitHub.
 
 ### v0.16.0 — 2026-09-11 — Per-machine command queue
 

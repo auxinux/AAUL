@@ -522,6 +522,13 @@ cd ~/AAUL && git pull && ./install.sh
 
 Nothing is ever downloaded or installed automatically — the check only reports.
 
+A clone made before the move to GitHub still pulls from the retired
+`git.auxinux.ca` server, so `git pull` fails there. Point it at GitHub once:
+
+```bash
+cd ~/AAUL && git remote set-url origin https://github.com/auxinux/AAUL.git
+```
+
 - Interval and on/off switch live in `Admin`, default every 30 minutes.
 - **Turn it off on an isolated network.** Otherwise the dashboard attempts one
   outbound request per interval that can never succeed.
@@ -621,7 +628,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the maintainer-facing conventions use
 
 ## Links
 
-- Git: [git.auxinux.ca/Auxinux/AAUL](https://git.auxinux.ca/Auxinux/AAUL)
+- Git: [github.com/auxinux/AAUL](https://github.com/auxinux/AAUL)
 - Project page: [aaul.auxinux.ca](https://aaul.auxinux.ca)
 - Auxinux wiki: [auxinux.ca/projets/projet-aaul](https://auxinux.ca/projets/projet-aaul?tab=wiki)
 

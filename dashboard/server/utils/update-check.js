@@ -21,11 +21,16 @@ import { getSetting } from "./settings.js";
 import { broadcastSSE } from "./sse.js";
 import { readVersion } from "../routes/bundle.js";
 
-// Public raw URL of RELEASE.md on the project's Gitea instance. Readable
+// Public raw URL of RELEASE.md on the project's GitHub repository. Readable
 // anonymously; overridable via the `updateReleaseUrl` setting for an internal
 // mirror or for AAUL-Cloud.
 const DEFAULT_RELEASE_URL =
-  "https://git.auxinux.ca/Auxinux/AAUL/raw/branch/main/RELEASE.md";
+  "https://raw.githubusercontent.com/auxinux/AAUL/main/RELEASE.md";
+
+// The project used to live on a self-hosted Gitea that no longer exists. An
+// installation that saved its address as the version source would fail every
+// check with an HTTP 502 forever, so such a value is treated as "not set".
+const RETIRED_RELEASE_HOSTS = new Set(["git.auxinux.ca"]);
 
 const DEFAULT_INTERVAL_MINUTES = 30;
 const MIN_INTERVAL_MINUTES = 5;
@@ -301,6 +306,9 @@ async function resolveReleaseUrl() {
   if (!trimmed) return DEFAULT_RELEASE_URL;
   try {
     const url = new URL(trimmed);
+    if (RETIRED_RELEASE_HOSTS.has(url.hostname.toLowerCase())) {
+      return DEFAULT_RELEASE_URL;
+    }
     if (url.protocol === "http:" || url.protocol === "https:") {
       return url.href;
     }
@@ -324,6 +332,11 @@ async function fetchReleaseDocument(url) {
       headers: { Accept: "text/plain, text/markdown, */*" }
     });
     if (!response.ok) {
+      // GitHub answers 404 rather than 401 for a repository it will not show
+      // anonymously, so say so instead of leaving a bare status code.
+      if (response.status === 404) {
+        throw new Error("HTTP 404 (fichier introuvable ou dépôt non public)");
+      }
       throw new Error(`HTTP ${response.status}`);
     }
     const declared = Number.parseInt(response.headers.get("content-length") || "", 10);
