@@ -121,41 +121,113 @@ function verifyAgentSignature(req, agent, plaintextToken) {
   return { ok: true };
 }
 
-export function requireAuth(req, res, next) {
-  if (!req.session || !req.session.userId) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-  if (CSRF_UNSAFE_METHODS.has(req.method.toUpperCase())) {
-    const expected = req.session.csrfToken;
-    const provided = req.headers["x-csrf-token"];
-    if (!safeTokenEquals(expected, provided)) {
-      res.status(403).json({ error: "Invalid CSRF token" });
-      return;
-    }
-  }
-  next();
+// A session is bound to the password it was opened with. Changing or resetting
+// a password changes the stamp, which ends every other session of that user —
+// before this, a session opened with a leaked password outlived the reset.
+export function sessionAuthStamp(passwordHash) {
+  return crypto.createHash("sha256").update(`aaul-session:${passwordHash || ""}`).digest("hex").slice(0, 32);
 }
 
-export async function requireAdmin(req, res, next) {
+/**
+ * The user behind this session, or null when the session no longer stands:
+ * account deleted, or password changed since the session was opened.
+ *
+ * Sessions opened before stamps existed carry none; they are stamped on first
+ * use instead of being logged out, and a later password change still ends them.
+ */
+export async function loadSessionUser(req) {
   if (!req.session || !req.session.userId) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-  if (CSRF_UNSAFE_METHODS.has(req.method.toUpperCase())) {
-    const expected = req.session.csrfToken;
-    const provided = req.headers["x-csrf-token"];
-    if (!safeTokenEquals(expected, provided)) {
-      res.status(403).json({ error: "Invalid CSRF token" });
-      return;
-    }
+    return null;
   }
   const user = await dbOps.get(
-    "SELECT id, username, created_at, COALESCE(is_admin, 0) AS is_admin FROM users WHERE id = ?",
+    "SELECT id, username, created_at, password_hash, COALESCE(is_admin, 0) AS is_admin, COALESCE(must_change_password, 0) AS must_change_password FROM users WHERE id = ?",
     [req.session.userId]
   );
   if (!user) {
+    return null;
+  }
+  const stamp = sessionAuthStamp(user.password_hash);
+  if (!req.session.authStamp) {
+    req.session.authStamp = stamp;
+  } else if (!safeTokenEquals(req.session.authStamp, stamp)) {
+    return null;
+  }
+  return user;
+}
+
+function rejectSession(req, res) {
+  const reply = () => res.status(401).json({ error: "Unauthorized" });
+  if (req.session?.userId) {
+    req.session.destroy(reply);
+    return;
+  }
+  reply();
+}
+
+function hasValidCsrf(req) {
+  if (!CSRF_UNSAFE_METHODS.has(req.method.toUpperCase())) {
+    return true;
+  }
+  return safeTokenEquals(req.session.csrfToken, req.headers["x-csrf-token"]);
+}
+
+// Until the password is changed, the session may only reach /api/auth (which
+// serves the change itself). The UI already blocks on it; this enforces it.
+function rejectPendingPasswordChange(user, res) {
+  if (Number(user.must_change_password) !== 1) {
+    return false;
+  }
+  res.status(403).json({ error: "Password change required", code: "PASSWORD_CHANGE_REQUIRED" });
+  return true;
+}
+
+export async function requireAuth(req, res, next) {
+  try {
+    if (!req.session || !req.session.userId) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    if (!hasValidCsrf(req)) {
+      res.status(403).json({ error: "Invalid CSRF token" });
+      return;
+    }
+    const user = await loadSessionUser(req);
+    if (!user) {
+      rejectSession(req, res);
+      return;
+    }
+    if (rejectPendingPasswordChange(user, res)) {
+      return;
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function requireAdmin(req, res, next) {
+  try {
+    await requireAdminChecked(req, res, next);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function requireAdminChecked(req, res, next) {
+  if (!req.session || !req.session.userId) {
     res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  if (!hasValidCsrf(req)) {
+    res.status(403).json({ error: "Invalid CSRF token" });
+    return;
+  }
+  const user = await loadSessionUser(req);
+  if (!user) {
+    rejectSession(req, res);
+    return;
+  }
+  if (rejectPendingPasswordChange(user, res)) {
     return;
   }
   if (Number(user.is_admin) !== 1) {

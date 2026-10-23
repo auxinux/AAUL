@@ -11,7 +11,7 @@ import config, { MIN_AGENT_POLL_SECONDS, MAX_AGENT_POLL_SECONDS } from "../confi
 import { dbOps } from "../db/index.js";
 import { resolveBaseUrl } from "../utils/base-url.js";
 import { getSetting } from "../utils/settings.js";
-import { decryptSecret, generateToken, hashToken, protectToken } from "../utils/tokens.js";
+import { decryptSecret, generateToken, hashToken, isInstallLinkExpired, protectToken } from "../utils/tokens.js";
 
 const router = express.Router();
 
@@ -673,6 +673,12 @@ router.get("/", async (req, res) => {
     );
     if (!agent) {
       res.status(404).send("Not found");
+      return;
+    }
+    // The script embeds the agent's live API token: a stale link must not keep
+    // handing it out to whoever finds the URL later.
+    if (isInstallLinkExpired(agent)) {
+      res.status(410).send("Install link expired - open the install window in the dashboard to get a new one");
       return;
     }
 

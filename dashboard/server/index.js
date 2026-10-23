@@ -52,9 +52,13 @@ app.use((req, res, next) => {
   next();
 });
 
-// Always trust the first proxy so req.ip reflects the real client IP
-// even behind an HTTP reverse proxy. Required for accurate rate-limiting.
-app.set("trust proxy", 1);
+// X-Forwarded-For / X-Forwarded-Proto are only believed when they come from a
+// proxy we trust. Trusting "the first hop" unconditionally let any client that
+// talks to the dashboard directly forge them: a fresh fake IP per request
+// defeated the login rate limit, and a fake "https" defeated the HTTPS-only
+// rule of the agent installer. The default trusts a reverse proxy on this same
+// host; TRUST_PROXY widens it for a proxy elsewhere (see config.js).
+app.set("trust proxy", config.trustProxy);
 
 // Body parsing middleware. Keep the exact raw body so agent request signatures
 // can be verified against the literal bytes (no JSON re-serialization agreement

@@ -56,3 +56,17 @@ export function protectToken(token) {
     encrypted: encryptSecret(token)
   };
 }
+
+// An install link hands out the agent's API token, so it must not outlive the
+// install it was made for. Until the agent first connects the link stays valid
+// (enrolment can take days); once it has, a link only works for this long
+// after it was issued — reopening the install window issues a fresh one.
+export const INSTALL_LINK_TTL_MS = 24 * 60 * 60 * 1000;
+
+export function isInstallLinkExpired(agent, now = Date.now()) {
+  if (!agent?.last_seen_at) {
+    return false;
+  }
+  const issuedAt = Date.parse(agent.install_token_issued_at || "");
+  return !Number.isFinite(issuedAt) || now - issuedAt > INSTALL_LINK_TTL_MS;
+}

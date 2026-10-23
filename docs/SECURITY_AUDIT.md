@@ -65,14 +65,14 @@
 | ID | Title | File:Line | Status |
 |----|-------|-----------|--------|
 | F11 | WebSocket no origin validation | `dashboard/server/plugins/local-console/index.js:346` | **FIXED** |
-| F12 | Default session secret "change-me" | `dashboard/config/config.json:4` |
+| F12 | Default session secret "change-me" | `dashboard/config/config.json:4` | **FIXED** (B3: random persistent `0600` secret) |
 | F13 | All users hardcoded `isAdmin: true` | `dashboard/server/routes/auth.js:62` | **FIXED** |
 | F14 | No CSRF protection on dashboard | All POST/DELETE routes | **FIXED** |
-| F15 | Agent API tokens stored plaintext in DB | `dashboard/server/db/index.js:67` |
+| F15 | Agent API tokens stored plaintext in DB | `dashboard/server/db/index.js:67` | **FIXED** (SHA-256 hash for lookup + encrypted copy; plaintext column cleared) |
 | F16 | No bundle signature verification | `agent/app/lib/updater.py:32-46` | **FIXED** |
-| F17 | `curl \| sudo sh` install pattern | `dashboard/server/routes/install.js:93` |
-| F18 | Services run as root without capability restrictions | `dashboard/server/routes/install.js:128` |
-| F19 | Initial admin password logged to console | `dashboard/server/db/index.js:143` |
+| F17 | `curl \| sudo sh` install pattern | `dashboard/server/routes/install.js:93` | Open — mitigated: install links expire once the agent has connected (§6) |
+| F18 | Services run as root without capability restrictions | `dashboard/server/routes/install.js:128` | Open |
+| F19 | Initial admin password logged to console | `dashboard/server/db/index.js:143` | **FIXED** (written to a `0600` `.initial-admin-password` file, never logged) |
 
 ---
 
@@ -131,13 +131,13 @@
 ## 4. Residual Risks & Prioritized Plan
 
 ### Priority 1 — Short-term (before production)
-1. **F15 — Token hashing**: Hash agent API tokens with SHA-256 before storage (like passwords)
+1. ~~**F15 — Token hashing**~~ — done
 2. **F17 — Install script**: Replace `curl|sh` with download→verify→execute pattern
 3. Add audit logging for admin actions and role changes
 
 ### Priority 2 — Medium-term
 1. **F18 — Least privilege**: Create dedicated `agentautoupdate` user, use `CapabilityBoundingSet` in systemd
-2. **F19 — Console password**: Stop logging initial admin password; write to a secure file instead
+2. ~~**F19 — Console password**~~ — done
 3. **Plugin sandboxing**: Run plugins in worker threads or separate processes
 4. **Audit logging**: Log all admin actions, plugin installs, config changes
 5. **CI pipeline**: Add a `.github/workflows/ci.yml` running server+client install, `npm run test:security`, client build, and agent `py_compile`, with `npm audit`/`pip-audit` as informational steps
@@ -147,7 +147,7 @@
 12. Certificate file permissions: validate `0600` on private keys at startup
 13. Add Content-Security-Policy to dashboard (currently only on agent web)
 14. Persistent rate limiting (SQLite-backed instead of in-memory)
-15. Session secret: persist auto-generated secret to file to survive restarts
+15. ~~Session secret: persist auto-generated secret to file to survive restarts~~ — done
 
 ---
 
@@ -181,3 +181,27 @@
 | `npm run test:security` | OK (command-policy tests passed) |
 | `python3 -m py_compile agent/app/lib/*.py` | OK |
 | `bash -n install.sh` | OK |
+
+---
+
+## 6. Session, proxy and install-link hardening (2026-10-23, dashboard 0.16.2)
+
+### Fixed
+
+| ID | Title | Detail |
+|----|-------|--------|
+| S1 | **Forged `X-Forwarded-*` headers trusted** | `trust proxy` was hard-coded to `1`, so a client talking to the dashboard directly could forge `X-Forwarded-For` (a new fake IP per request bypassed the 5-attempt login limit and grew the attempt map without bound) and `X-Forwarded-Proto: https` (bypassing the HTTPS-only installer rule). Now `loopback` by default — only a reverse proxy on the same host is believed — and configurable with `TRUST_PROXY` (address, subnet, list, hop count, or `false`). |
+| S2 | **Install links never expired** | `/install?token=…` returns a script embedding the agent's live API token, and kept doing so after the agent had connected: anyone finding the URL later (shell history, proxy logs) could impersonate the agent. Once an agent has connected, a link is now valid for 24 h after it was issued and answers `410 Gone` afterwards. Opening the install window again issues a fresh link, which is how an agent is reinstalled. Links of agents that never connected stay valid, enrolment can take days. |
+| S3 | **Sessions survived a password change or reset** | A session is now bound to a stamp derived from the password hash. Changing one's password, or an admin resetting it, ends every other session of that user; the session the change was made from carries on. Sessions opened before the upgrade are stamped on first use rather than logged out. |
+| S4 | **Forced password change enforced only by the UI** | `must_change_password` (set by `cli.js` admin reset) is now enforced server-side: until the password is changed, the API answers `403 PASSWORD_CHANGE_REQUIRED` outside `/api/auth`. |
+| S5 | **Unhandled rejection in auth middleware** | A database error in `requireAdmin` was an unhandled promise rejection, which stops the Node process. The auth middlewares now forward errors to Express. |
+
+### Validation
+
+| Check | Result |
+|-------|--------|
+| End-to-end scenario on a fresh database (two sessions, password change, admin reset, forced change, install link before/after first contact, legacy row without issue date) | 27/27 OK |
+| 7 failed logins sent directly with a different forged `X-Forwarded-For` each | 401 ×5 then 429 |
+| Same through a loopback proxy | each forwarded IP keeps its own counter |
+| `npm run test:security`, `npm run check:client` | OK |
+

@@ -18,6 +18,30 @@
  */
 export const CHANGELOG = [
   {
+    version: "0.16.2",
+    date: "2026-10-23",
+    title: {
+      fr: "Sessions, liens d'installation et proxy : durcissement",
+      en: "Sessions, install links and proxy hardening",
+    },
+    changes: {
+      fr: [
+        "Sécurité : changer son mot de passe, ou le faire réinitialiser par un administrateur, ferme toutes les autres sessions de ce compte. La session depuis laquelle le changement est fait reste ouverte. Les sessions déjà ouvertes avant la mise à jour ne sont pas fermées.",
+        "Sécurité : un lien d'installation ne fonctionne plus indéfiniment. Une fois l'agent connecté, le lien expire 24 heures après avoir été émis. Pour réinstaller un agent, il suffit de rouvrir sa fenêtre d'installation : un nouveau lien est généré.",
+        "Sécurité : les en-têtes X-Forwarded-For et X-Forwarded-Proto ne sont plus crus que s'ils viennent d'un reverse proxy installé sur la même machine. Un client ne peut plus s'en servir pour contourner la limite de tentatives de connexion ni la règle « installation en HTTPS seulement ».",
+        "Si votre reverse proxy tourne sur une autre machine, indiquez son adresse dans dashboard/.env, par exemple TRUST_PROXY=10.0.0.5, puis redémarrez le service.",
+        "Sécurité : un compte qui doit changer son mot de passe — après une réinitialisation par la ligne de commande — n'a plus accès au reste de l'API tant que ce n'est pas fait.",
+      ],
+      en: [
+        "Security: changing your password, or having an administrator reset it, ends every other session of that account. The session the change was made from stays open. Sessions opened before the update are not closed.",
+        "Security: an install link no longer works forever. Once the agent has connected, the link expires 24 hours after it was issued. To reinstall an agent, open its install window again: a new link is issued.",
+        "Security: the X-Forwarded-For and X-Forwarded-Proto headers are only believed when they come from a reverse proxy on the same machine. A client can no longer use them to get around the login attempt limit or the HTTPS-only install rule.",
+        "If your reverse proxy runs on another machine, set its address in dashboard/.env, for example TRUST_PROXY=10.0.0.5, then restart the service.",
+        "Security: an account that must change its password -- after a reset from the command line -- can no longer reach the rest of the API until it does.",
+      ],
+    },
+  },
+  {
     version: "0.16.1",
     date: "2026-10-23",
     title: {

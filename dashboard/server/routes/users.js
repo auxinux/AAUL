@@ -1,7 +1,7 @@
 import express from "express";
 import bcrypt from "bcrypt";
 import { dbOps } from "../db/index.js";
-import { requireAdmin, requireSystemAdmin } from "../middleware/auth.js";
+import { requireAdmin, requireSystemAdmin, sessionAuthStamp } from "../middleware/auth.js";
 import { enrichSession } from "../plugins/plugin-loader.js";
 
 const router = express.Router();
@@ -70,6 +70,11 @@ router.put("/:id/password", requireAdmin, requireSystemAdmin, async (req, res) =
     hash,
     req.params.id
   ]);
+  // The reset ends that user's sessions (see sessionAuthStamp). An admin
+  // resetting their own password keeps the session they did it from.
+  if (String(req.session.userId) === String(req.params.id)) {
+    req.session.authStamp = sessionAuthStamp(hash);
+  }
   res.json({ ok: true });
 });
 

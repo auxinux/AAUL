@@ -569,6 +569,14 @@ deploy it on a fleet you care about:
 - **Run it over HTTPS.** Agent tokens and admin sessions travel over the wire.
   Enable HTTPS (or put the dashboard behind a TLS-terminating reverse proxy)
   before exposing it beyond localhost. Plain-HTTP install is disabled by default.
+- **A reverse proxy on another machine must be declared.** The dashboard only
+  believes `X-Forwarded-For` / `X-Forwarded-Proto` from a proxy on the same
+  host. If yours runs elsewhere, set `TRUST_PROXY` in `dashboard/.env` to its
+  address or subnet (e.g. `TRUST_PROXY=10.0.0.5`); otherwise every user shares
+  the proxy's IP for the login rate limit, and the installer sees plain HTTP.
+- **Install links expire once the agent has connected** — 24 h after they were
+  issued. To reinstall an agent, open its install window again: it issues a
+  fresh link.
 - **The dashboard runs privileged commands on agents.** Treat admin accounts as
   highly sensitive. The default admin password is generated at first launch and
   written to `.initial-admin-password` (mode `0600`) next to the database —

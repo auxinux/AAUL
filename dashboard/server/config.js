@@ -49,8 +49,23 @@ function parseHttpsFromEnv() {
   };
 }
 
+// Which peers may set X-Forwarded-* headers, in Express "trust proxy" syntax.
+// Default: a reverse proxy on this host only. "false" trusts nobody; an
+// address, a subnet or a comma-separated list trusts those proxies.
+function parseTrustProxy(value) {
+  if (value === undefined || value === "") {
+    return undefined;
+  }
+  const raw = String(value).trim();
+  if (raw === "false" || raw === "0") return false;
+  if (raw === "true") return true;
+  if (/^\d+$/.test(raw)) return Number(raw);
+  return raw.split(",").map((part) => part.trim()).filter(Boolean);
+}
+
 // Overrides config.json values when set
 const envConfig = {
+  trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
   host: process.env.HOST,
   dbPath: process.env.DB_PATH,
   sessionSecret: process.env.SESSION_SECRET,
@@ -159,6 +174,10 @@ if (!config.defaultApiProtocol) {
 
 if (typeof config.agentAutoUpdateEnabled !== "boolean") {
   config.agentAutoUpdateEnabled = true;
+}
+
+if (config.trustProxy === undefined || config.trustProxy === null) {
+  config.trustProxy = "loopback";
 }
 
 // Floor on how often an agent may contact the dashboard. Below ~5s a fleet

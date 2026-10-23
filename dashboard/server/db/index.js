@@ -141,6 +141,9 @@ export async function initDb() {
   if (!agentColumnNames.has("pending_poll_interval_seconds")) {
     await run("ALTER TABLE agents ADD COLUMN pending_poll_interval_seconds INTEGER");
   }
+  if (!agentColumnNames.has("install_token_issued_at")) {
+    await run("ALTER TABLE agents ADD COLUMN install_token_issued_at TEXT");
+  }
   if (!agentColumnNames.has("last_info_json")) {
     await run("ALTER TABLE agents ADD COLUMN last_info_json TEXT");
   }

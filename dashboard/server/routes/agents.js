@@ -5,7 +5,7 @@ import express from "express";
 import { v4 as uuidv4 } from "uuid";
 import { dbOps } from "../db/index.js";
 import { requireAdmin } from "../middleware/auth.js";
-import { decryptSecret, generateToken, protectToken } from "../utils/tokens.js";
+import { decryptSecret, generateToken, isInstallLinkExpired, protectToken } from "../utils/tokens.js";
 import config from "../config.js";
 import { resolveBaseUrl } from "../utils/base-url.js";
 import { readVersion } from "./bundle.js";
@@ -75,21 +75,26 @@ function extractInstallToken(agent) {
 }
 
 // The UI expects install information to exist even for migrated legacy rows.
+// A link whose agent already connected expires (see isInstallLinkExpired), so
+// an admin opening the install window again gets a fresh one — that is how an
+// agent is reinstalled — and an old link found in a shell history is dead.
 async function ensureInstallToken(agent) {
   const installToken = extractInstallToken(agent);
-  if (installToken) {
+  if (installToken && !isInstallLinkExpired(agent)) {
     return installToken;
   }
 
   const rotatedToken = generateToken(32);
   const protectedInstallToken = protectToken(rotatedToken);
+  const issuedAt = new Date().toISOString();
   await dbOps.run(
-    "UPDATE agents SET install_token = NULL, install_token_hash = ?, install_token_enc = ? WHERE id = ?",
-    [protectedInstallToken.hash, protectedInstallToken.encrypted, agent.id]
+    "UPDATE agents SET install_token = NULL, install_token_hash = ?, install_token_enc = ?, install_token_issued_at = ? WHERE id = ?",
+    [protectedInstallToken.hash, protectedInstallToken.encrypted, issuedAt, agent.id]
   );
   agent.install_token = null;
   agent.install_token_hash = protectedInstallToken.hash;
   agent.install_token_enc = protectedInstallToken.encrypted;
+  agent.install_token_issued_at = issuedAt;
   return rotatedToken;
 }
 
@@ -595,8 +600,9 @@ router.post("/", requireAdmin, async (req, res) => {
       schedule_enabled,
       schedule_daily_time,
       install_base_url,
-      created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      created_at,
+      install_token_issued_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       agentId,
       displayNameValue,
@@ -609,6 +615,7 @@ router.post("/", requireAdmin, async (req, res) => {
       config.agentDefaultScheduleEnabled,
       config.agentDefaultDailyTime,
       installBaseUrl,
+      now,
       now
     ]
   );
@@ -721,7 +728,7 @@ router.get("/:id", requireAdmin, async (req, res) => {
 
 router.get("/:id/install", requireAdmin, async (req, res) => {
   const agent = await dbOps.get(
-    "SELECT id, display_name, install_token, install_token_enc, install_token_hash, install_base_url FROM agents WHERE id = ?",
+    "SELECT id, display_name, install_token, install_token_enc, install_token_hash, install_token_issued_at, install_base_url, last_seen_at FROM agents WHERE id = ?",
     [req.params.id]
   );
   if (!agent) {

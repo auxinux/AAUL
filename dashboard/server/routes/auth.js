@@ -3,6 +3,7 @@ import bcrypt from "bcrypt";
 import crypto from "crypto";
 import { dbOps } from "../db/index.js";
 import config from "../config.js";
+import { loadSessionUser, sessionAuthStamp } from "../middleware/auth.js";
 
 const router = express.Router();
 const loginAttempts = new Map();
@@ -89,6 +90,7 @@ router.post("/login", async (req, res) => {
       return;
     }
     req.session.userId = user.id;
+    req.session.authStamp = sessionAuthStamp(user.password_hash);
     req.session.user = {
       id: user.id,
       username: user.username,
@@ -140,12 +142,14 @@ router.get("/me", async (req, res) => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
-  const user = await dbOps.get(
-    "SELECT id, username, created_at, COALESCE(is_admin, 0) AS is_admin, COALESCE(must_change_password, 0) AS must_change_password FROM users WHERE id = ?",
-    [req.session.userId]
-  );
+  // Same check as the API middleware, so a session ended by a password change
+  // is reported as logged out instead of looking signed in with every call failing.
+  const user = await loadSessionUser(req);
   if (!user) {
-    res.status(401).json({ error: "Unauthorized" });
+    req.session.destroy(() => {
+      res.clearCookie("csrf-token");
+      res.status(401).json({ error: "Unauthorized" });
+    });
     return;
   }
   const csrfToken = ensureCsrfToken(req);
@@ -218,6 +222,8 @@ router.post("/change-password", async (req, res) => {
     [hash, user.id]
   );
 
+  // Other sessions of this user end with the old password; this one carries on.
+  req.session.authStamp = sessionAuthStamp(hash);
   req.session.user = {
     id: user.id,
     username: user.username,
