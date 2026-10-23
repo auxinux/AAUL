@@ -529,6 +529,28 @@ A clone made before the move to GitHub still pulls from the retired
 cd ~/AAUL && git remote set-url origin https://github.com/auxinux/AAUL.git
 ```
 
+### One-click update from the dashboard
+
+On a Linux server with systemd, the release-notes window also offers an
+**Update now** button. It is set up by `install.sh` — so it appears after the
+first update run from the shell — and needs `git` on the server.
+
+The dashboard never gets root for this. The button only drops a request file;
+a systemd path unit (`aaul-self-update.path`) sees it and runs
+`/usr/local/lib/aaul/self-update.sh` as root. That script:
+
+1. fetches the published version from the repository recorded in
+   `/etc/aaul/self-update.conf` into `/var/lib/aaul/src` (root-owned, never the
+   operator's `~/AAUL` clone);
+2. runs that copy's `install.sh --update`, which backs up `/opt/AAUL`, updates
+   it, restarts the service, and **restores the backup if anything fails**;
+3. records progress in `/var/lib/aaul/self-update/`, which the window shows,
+   along with the log when an update fails.
+
+The source repository is the `origin` of the clone `install.sh` ran from
+(converted to https; the retired `git.auxinux.ca` falls back to GitHub). To
+follow it live: `journalctl -u aaul-self-update -f`.
+
 - Interval and on/off switch live in `Admin`, default every 30 minutes.
 - **Turn it off on an isolated network.** Otherwise the dashboard attempts one
   outbound request per interval that can never succeed.

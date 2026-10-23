@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowUpCircle, RefreshCw } from "lucide-react";
+import { ArrowUpCircle, Download, Loader2, RefreshCw } from "lucide-react";
 import { useI18n } from "../lib/i18n.js";
 import { APP_VERSION } from "../lib/appVersion.js";
 import { apiFetch } from "../lib/api.js";
@@ -12,6 +12,13 @@ export default function Footer() {
   const [checking, setChecking] = useState(false);
   const [notes, setNotes] = useState(null);
   const [notesSource, setNotesSource] = useState(null);
+  const [selfUpdate, setSelfUpdate] = useState(null);
+  const [confirmingApply, setConfirmingApply] = useState(false);
+  // True from the click until the update ends; the dashboard restarts in the
+  // middle, so failed requests during that time mean "restarting", not "error".
+  const [applying, setApplying] = useState(false);
+  const [restarting, setRestarting] = useState(false);
+  const [applyError, setApplyError] = useState("");
 
   // Cached result only — the server never hits the network on this call, so it
   // is safe to ask for it on every mount.
@@ -28,6 +35,56 @@ export default function Footer() {
   useEffect(() => {
     loadStatus();
   }, [loadStatus]);
+
+  const loadSelfUpdate = useCallback(async () => {
+    const data = await apiFetch("/api/admin/self-update");
+    setSelfUpdate(data.selfUpdate || null);
+    return data.selfUpdate || null;
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    loadSelfUpdate().catch(() => setSelfUpdate(null));
+  }, [open, loadSelfUpdate]);
+
+  // Follow the update through the restart. The new version may ship a new
+  // client bundle, so a successful update ends with a reload.
+  useEffect(() => {
+    if (!applying) return undefined;
+    let reloadTimer = null;
+    const timer = setInterval(async () => {
+      try {
+        const current = await loadSelfUpdate();
+        setRestarting(false);
+        if (current?.state === "success") {
+          clearInterval(timer);
+          reloadTimer = setTimeout(() => window.location.reload(), 2500);
+        } else if (["failed", "up-to-date", "stalled"].includes(current?.state)) {
+          clearInterval(timer);
+          setApplying(false);
+          loadStatus();
+        }
+      } catch {
+        setRestarting(true);
+      }
+    }, 3000);
+    return () => {
+      clearInterval(timer);
+      if (reloadTimer) clearTimeout(reloadTimer);
+    };
+  }, [applying, loadSelfUpdate, loadStatus]);
+
+  const applyUpdate = async () => {
+    setConfirmingApply(false);
+    setApplyError("");
+    try {
+      const data = await apiFetch("/api/admin/self-update", { method: "POST" });
+      setSelfUpdate(data.selfUpdate || null);
+      setApplying(true);
+    } catch (err) {
+      setApplyError(err.message || t("errors.loadFailed"));
+    }
+  };
 
   // Notes are only needed once the window is opened.
   useEffect(() => {
@@ -83,6 +140,17 @@ export default function Footer() {
 
   const updateAvailable = Boolean(status?.updateAvailable && status?.latest?.dashboard);
   const latest = status?.latest?.dashboard;
+  const installedVersion = status?.current?.dashboard || APP_VERSION;
+  // Only worth a line when the agent bundle actually changes.
+  const agentChanges = Boolean(
+    status?.latest?.agent && status.latest.agent !== status?.current?.agent
+  );
+
+  const selfUpdateState = selfUpdate?.state || "idle";
+  const selfUpdateBusy = applying || ["requested", "running"].includes(selfUpdateState);
+  // A failure is only news while this installation is still on the version
+  // that failed to update; an old one would otherwise linger forever.
+  const showFailure = selfUpdateState === "failed" && selfUpdate?.from === installedVersion;
 
   // Show the section matching the interface language. If a document somehow
   // lacks it, fall back to the other one rather than showing nothing.
@@ -131,19 +199,97 @@ export default function Footer() {
                 {t("updates.availableTitle", { version: latest })}
               </div>
               <p className="text-xs text-slate-300">
-                {t("updates.availableBody", {
-                  current: status?.current?.dashboard || APP_VERSION,
-                  latest
-                })}
+                {t("updates.availableBody", { current: installedVersion, latest })}
               </p>
-              {status?.latest?.agent && (
+              {agentChanges && (
                 <p className="text-xs text-slate-400">
                   {t("updates.agentLine", { version: status.latest.agent })}
                 </p>
               )}
-              <pre className="rounded-lg bg-black/40 border border-white/5 px-3 py-2 text-[11px] font-mono text-slate-300 overflow-x-auto">
-                cd ~/AAUL &amp;&amp; git pull &amp;&amp; ./install.sh
-              </pre>
+
+              {/* One-click update, when install.sh has set it up on this server. */}
+              {selfUpdateBusy ? (
+                <div className="flex items-center gap-2 rounded-lg border border-white/5 bg-black/30 px-3 py-2 text-xs text-slate-200">
+                  <Loader2 size={14} className="animate-spin text-amber-300" />
+                  {restarting
+                    ? t("updates.stateRestarting")
+                    : selfUpdateState === "running"
+                      ? t("updates.stateRunning", { message: selfUpdate?.message || "" })
+                      : t("updates.stateRequested")}
+                </div>
+              ) : null}
+              {applying && selfUpdateState === "success" ? (
+                <div className="text-xs text-emerald-400">
+                  {t("updates.stateSuccess", { version: selfUpdate?.to || latest })}
+                </div>
+              ) : null}
+              {!applying && selfUpdateState === "up-to-date" ? (
+                <div className="text-xs text-slate-400">{t("updates.stateUpToDate")}</div>
+              ) : null}
+              {showFailure && !selfUpdateBusy ? (
+                <div className="space-y-2">
+                  <div className="text-xs text-red-400">
+                    {t("updates.stateFailed", { message: selfUpdate?.message || "" })}
+                  </div>
+                  {selfUpdate?.log ? (
+                    <details className="text-[11px]">
+                      <summary className="cursor-pointer text-slate-400">{t("updates.logTitle")}</summary>
+                      <pre className="mt-1 max-h-48 overflow-auto rounded-lg bg-black/40 border border-white/5 px-3 py-2 font-mono text-slate-400 whitespace-pre-wrap">
+                        {selfUpdate.log}
+                      </pre>
+                    </details>
+                  ) : null}
+                </div>
+              ) : null}
+              {applyError ? <div className="text-xs text-red-400">{applyError}</div> : null}
+
+              {selfUpdate?.available && !selfUpdateBusy && selfUpdateState !== "stalled" ? (
+                confirmingApply ? (
+                  <div className="space-y-2 rounded-lg border border-amber-500/20 bg-black/30 p-3">
+                    <p className="text-xs text-slate-300">{t("updates.applyConfirm")}</p>
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" className="btn btn-primary text-xs" onClick={applyUpdate}>
+                        <Download size={14} />
+                        {t("updates.applyConfirmButton")}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary text-xs"
+                        onClick={() => setConfirmingApply(false)}
+                      >
+                        {t("updates.applyCancel")}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn-primary text-xs"
+                    onClick={() => setConfirmingApply(true)}
+                  >
+                    <Download size={14} />
+                    {t("updates.applyNow")}
+                  </button>
+                )
+              ) : null}
+
+              {!selfUpdateBusy ? (
+                <>
+                  <p className="text-xs text-slate-400">
+                    {selfUpdateState === "stalled"
+                      ? t("updates.stateStalled")
+                      : selfUpdate?.available
+                        ? t("updates.orShell")
+                        : t("updates.shellOnly")}
+                  </p>
+                  <pre className="rounded-lg bg-black/40 border border-white/5 px-3 py-2 text-[11px] font-mono text-slate-300 overflow-x-auto">
+                    cd ~/AAUL &amp;&amp; git pull &amp;&amp; ./install.sh
+                  </pre>
+                  {selfUpdate?.reason === "not-installed" ? (
+                    <p className="text-[11px] text-slate-500">{t("updates.enableHint")}</p>
+                  ) : null}
+                </>
+              ) : null}
             </div>
           )}
 

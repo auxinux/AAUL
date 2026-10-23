@@ -1,6 +1,6 @@
 {
   "name": "agent-auto-update-dashboard",
-  "version": "0.16.4",
+  "version": "0.17.0",
   "license": "MIT",
   "private": true,
   "type": "module",

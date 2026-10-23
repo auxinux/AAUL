@@ -11,6 +11,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const configPath = path.join(__dirname, "..", "..", "config", "config.json");
 
 import { getReleaseNotes, getUpdateStatus, runUpdateCheck } from "../utils/update-check.js";
+import { getSelfUpdateStatus, requestSelfUpdate, SelfUpdateError } from "../utils/self-update.js";
 
 const router = express.Router();
 
@@ -278,6 +279,33 @@ router.post("/update-check", requireAdmin, requireSystemAdmin, async (req, res) 
   // the periodic check is turned off.
   const status = await runUpdateCheck({ force: true });
   res.json({ ok: true, throttled: false, status });
+});
+
+// ---------------------------------------------------------------------------
+//  Update requested from the UI (see utils/self-update.js)
+// ---------------------------------------------------------------------------
+
+router.get("/self-update", requireAdmin, requireSystemAdmin, (req, res) => {
+  res.json({ ok: true, selfUpdate: getSelfUpdateStatus() });
+});
+
+router.post("/self-update", requireAdmin, requireSystemAdmin, async (req, res) => {
+  try {
+    const selfUpdate = requestSelfUpdate({ username: req.session?.user?.username });
+    await recordAuditEvent({
+      actorUserId: getActorUserId(req),
+      action: "dashboard.self_update.requested",
+      entityType: "dashboard",
+      entityId: "self-update"
+    });
+    res.status(202).json({ ok: true, selfUpdate });
+  } catch (err) {
+    if (err instanceof SelfUpdateError) {
+      res.status(err.code === "busy" ? 409 : 400).json({ error: err.message, code: err.code });
+      return;
+    }
+    res.status(500).json({ error: "Could not request the update" });
+  }
 });
 
 export default router;

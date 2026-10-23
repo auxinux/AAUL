@@ -7,6 +7,7 @@ dashboard/.session-secret
 dashboard/.data-protection-key
 dashboard/.release-notes-cache.md
 dashboard/.initial-admin-password
+dashboard/.self-update/
 dashboard/ssl/
 dashboard/server/ssl/*.key
 dashboard/server/ssl/*.crt

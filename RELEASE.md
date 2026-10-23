@@ -1,5 +1,5 @@
 ---
-dashboard: 0.16.4
+dashboard: 0.17.0
 agent: 0.13.0
 date: 2026-10-23
 ---
@@ -16,7 +16,7 @@ Ce fichier est la référence de version consultée par chaque installation AAUL
 
 | Composant / Component | Version |
 |-----------------------|---------|
-| Dashboard | `0.16.4` |
+| Dashboard | `0.17.0` |
 | Agent     | `0.13.0` |
 
 ```bash
@@ -24,6 +24,15 @@ cd ~/AAUL && git pull && ./install.sh
 ```
 
 ## Français
+
+### v0.17.0 — 2026-10-23 — Mise à jour du tableau de bord en un clic
+
+- Nouveau : quand une version est publiée, la fenêtre « Notes de version » propose « Mettre à jour maintenant ». Le tableau de bord se met à jour, redémarre puis recharge la page ; la progression s'affiche pendant l'opération. La commande à lancer dans le terminal reste proposée.
+- En cas d'échec, l'installation précédente est restaurée automatiquement et la fenêtre affiche la raison ainsi que le journal de la mise à jour.
+- Sécurité : le tableau de bord n'obtient aucun droit administrateur. Il dépose seulement une demande ; un service système installé par install.sh récupère la version publiée sur le dépôt et l'installe.
+- Disponible sur un serveur Linux avec systemd et git. Le bouton apparaît après une première mise à jour faite depuis le terminal, qui installe ce service.
+- Correctif : install.sh ne revenait jamais à sa sauvegarde lorsqu'une mise à jour échouait, et laissait le service arrêté. La sauvegarde est désormais restaurée et le service relancé. Un échec de npm n'est plus silencieux.
+- Correctif : la fenêtre annonçait « Le bundle agent passera en 0.13.0 » même quand la version de l'agent ne changeait pas.
 
 ### v0.16.4 — 2026-10-23 — Retirer une machine qui n'existe plus
 
@@ -298,6 +307,15 @@ cd ~/AAUL && git pull && ./install.sh
 - Tableau de bord temps réel (SSE).
 
 ## English
+
+### v0.17.0 — 2026-10-23 — One-click dashboard update
+
+- New: when a version is published, the release-notes window offers "Update now". The dashboard updates, restarts and reloads the page, showing progress along the way. The command to run in the shell is still shown.
+- If anything fails, the previous installation is restored automatically and the window shows the reason along with the update log.
+- Security: the dashboard gets no administrator rights. It only drops a request; a system service installed by install.sh fetches the published version from the repository and installs it.
+- Available on a Linux server with systemd and git. The button appears after one update run from the shell, which installs that service.
+- Fix: install.sh never went back to its backup when an update failed, and left the service stopped. The backup is now restored and the service restarted. An npm failure is no longer silent.
+- Fix: the window said "The agent bundle will move to 0.13.0" even when the agent version did not change.
 
 ### v0.16.4 — 2026-10-23 — Removing a machine that no longer exists
 

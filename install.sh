@@ -38,9 +38,19 @@ SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 NODE_INSTALL_MAJOR=20
 IS_UPDATE=false
 SERVICE_WAS_ACTIVE=false
+UPDATE_SUCCEEDED=false
 
-# Utilisateur propriétaire (le user sudo original, sinon l'user courant)
-SERVICE_USER="${SUDO_USER:-$(id -un)}"
+# Mise à jour depuis le dashboard (voir dashboard/scripts/self-update.sh)
+SELF_UPDATE_LIB="/usr/local/lib/aaul"
+SELF_UPDATE_CONF="/etc/aaul/self-update.conf"
+SELF_UPDATE_UNIT="aaul-self-update"
+DEFAULT_REPO_URL="https://github.com/auxinux/AAUL.git"
+
+# Utilisateur propriétaire (le user sudo original, sinon l'user courant).
+# AAUL_SERVICE_USER le fixe explicitement : la mise à jour lancée depuis le
+# dashboard tourne en root sous systemd, sans SUDO_USER, et ne doit pas faire
+# passer le service en root.
+SERVICE_USER="${AAUL_SERVICE_USER:-${SUDO_USER:-$(id -un)}}"
 # Si on tourne directement en root sans sudo, on reste root
 [ -z "$SERVICE_USER" ] && SERVICE_USER="root"
 
@@ -104,10 +114,14 @@ get_sudo() {
 # Exécuter une commande en tant que SERVICE_USER (si on est root et user != root)
 run_as_user() {
   if is_root && [ "$SERVICE_USER" != "root" ]; then
+    # HOME doit être celui de l'utilisateur : sinon npm écrit son cache dans
+    # /root et échoue (EACCES).
+    local user_home
+    user_home="$(getent passwd "$SERVICE_USER" 2>/dev/null | cut -d: -f6)"
     if has_cmd runuser; then
-      runuser -u "$SERVICE_USER" -- "$@"
+      runuser -u "$SERVICE_USER" -- env HOME="${user_home:-/tmp}" "$@"
     else
-      sudo -u "$SERVICE_USER" "$@"
+      sudo -u "$SERVICE_USER" env HOME="${user_home:-/tmp}" "$@"
     fi
   else
     "$@"
@@ -141,6 +155,11 @@ rollback_from_backup() {
   local sudo_cmd; sudo_cmd="$(get_sudo)"
 
   warn "Restauration depuis la sauvegarde $BACKUP_DIR"
+  # La nouvelle version peut tourner (ou redémarrer en boucle) : l'arrêter
+  # avant d'écraser ses fichiers.
+  if is_linux && has_cmd systemctl; then
+    $sudo_cmd systemctl stop "$SERVICE_NAME" 2>/dev/null || true
+  fi
   $sudo_cmd mkdir -p "$INSTALL_DIR"
   if has_cmd rsync; then
     $sudo_cmd rsync -a --delete "$BACKUP_DIR/" "$INSTALL_DIR/"
@@ -158,8 +177,23 @@ on_error() {
   local exit_code="$1"
   local line_no="$2"
   warn "Échec du script à la ligne $line_no (code $exit_code)"
-  if $IS_UPDATE; then
-    rollback_from_backup || true
+  exit "$exit_code"
+}
+
+# Toute sortie en échec d'une mise à jour passe par ici : erreur sous set -e,
+# die(), ou service instable après redémarrage. Le piège ERR seul ne suffisait
+# pas — il ne se déclenche pas dans les fonctions sans set -E, et die() sort
+# sans lui — si bien que la restauration ne s'exécutait jamais.
+on_exit() {
+  local exit_code=$?
+  trap - EXIT ERR
+  if [ "$exit_code" -ne 0 ] && $IS_UPDATE && ! $UPDATE_SUCCEEDED; then
+    if [ -n "${BACKUP_DIR:-}" ]; then
+      rollback_from_backup || warn "Restauration impossible : restaurer $BACKUP_DIR à la main"
+    elif $SERVICE_WAS_ACTIVE; then
+      warn "Échec avant la sauvegarde : redémarrage du service existant"
+      start_service || true
+    fi
   fi
   exit "$exit_code"
 }
@@ -337,6 +371,7 @@ sync_files() {
         --exclude="dashboard/ssl/" \
         --exclude="dashboard/server/ssl/" \
         --exclude="dashboard/.release-notes-cache.md" \
+        --exclude="dashboard/.self-update/" \
         --exclude="dashboard/node_modules/" \
         --exclude="dashboard/client/node_modules/" \
         --exclude=".git/" \
@@ -447,8 +482,8 @@ run_npm_sync() {
     warn "npm ci indisponible pour $label (lockfile désync ou hors-ligne) — repli sur npm install"
   fi
 
-  (cd "$pkgdir" && run_as_user npm install --prefer-offline) >"$logf" 2>&1
-  rc=$?
+  rc=0
+  (cd "$pkgdir" && run_as_user npm install --prefer-offline) >"$logf" 2>&1 || rc=$?
   tail -12 "$logf"; rm -f "$logf"
   [ "$rc" -eq 0 ] || die "Échec de l'installation des dépendances $label"
   ok "Dépendances $label prêtes"
@@ -713,6 +748,108 @@ UNIT
 }
 
 # ---------------------------------------------------------------------------
+#  Mise à jour depuis le dashboard
+# ---------------------------------------------------------------------------
+# Adresse https du dépôt d'où viennent les sources. Le script de mise à jour
+# tourne en root, sans les clés SSH de l'utilisateur : une adresse SSH GitHub
+# est convertie en https, et l'ancien serveur git.auxinux.ca (fermé) remplacé.
+resolve_repo_url() {
+  local url=""
+  if [ -d "$SRC_DIR/.git" ] && has_cmd git; then
+    url="$(git -C "$SRC_DIR" remote get-url origin 2>/dev/null || true)"
+  fi
+  case "$url" in
+    git@github.com:*) url="https://github.com/${url#git@github.com:}" ;;
+  esac
+  case "$url" in
+    *git.auxinux.ca*|"") url="$DEFAULT_REPO_URL" ;;
+    https://*) ;;
+    *) url="$DEFAULT_REPO_URL" ;;
+  esac
+  printf '%s' "$url"
+}
+
+resolve_repo_branch() {
+  local branch=""
+  if [ -d "$SRC_DIR/.git" ] && has_cmd git; then
+    branch="$(git -C "$SRC_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  fi
+  case "$branch" in
+    ""|HEAD) branch="main" ;;
+  esac
+  printf '%s' "$branch"
+}
+
+# Le bouton « Mettre à jour » du dashboard dépose un fichier de demande ; une
+# unité .path le voit et lance la mise à jour en root. Tout ce que root exécute
+# est installé ici hors de /opt/AAUL, qui appartient au compte du service.
+install_self_update() {
+  if ! is_linux || ! has_cmd systemctl; then
+    return
+  fi
+  local sudo_cmd; sudo_cmd="$(get_sudo)"
+  local node_bin; node_bin="$(command -v node)"
+  local request_dir="$INSTALL_DIR/dashboard/.self-update"
+  local repo_url branch
+  repo_url="$(resolve_repo_url)"
+  branch="$(resolve_repo_branch)"
+
+  log "Mise à jour depuis le dashboard"
+
+  $sudo_cmd install -d -o root -g root -m 755 "$SELF_UPDATE_LIB" /etc/aaul /var/lib/aaul
+  $sudo_cmd install -o root -g root -m 755 \
+    "$SRC_DIR/dashboard/scripts/self-update.sh" "$SELF_UPDATE_LIB/self-update.sh"
+
+  $sudo_cmd tee "$SELF_UPDATE_CONF" > /dev/null <<CONF
+# Écrit par install.sh — lu en root par $SELF_UPDATE_LIB/self-update.sh
+REPO_URL="$repo_url"
+BRANCH="$branch"
+INSTALL_DIR="$INSTALL_DIR"
+SERVICE_USER="$SERVICE_USER"
+NODE_BIN="$node_bin"
+REQUEST_FILE="$request_dir/request"
+CONF
+  $sudo_cmd chown root:root "$SELF_UPDATE_CONF"
+  $sudo_cmd chmod 644 "$SELF_UPDATE_CONF"
+
+  # Seul endroit où le dashboard écrit : sa demande.
+  $sudo_cmd install -d -o "$SERVICE_USER" -m 700 "$request_dir"
+
+  $sudo_cmd tee "/etc/systemd/system/${SELF_UPDATE_UNIT}.service" > /dev/null <<UNIT
+[Unit]
+Description=AAUL — mise à jour du dashboard demandée depuis l'interface
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=$SELF_UPDATE_LIB/self-update.sh
+TimeoutStartSec=3600
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=${SELF_UPDATE_UNIT}
+UNIT
+
+  $sudo_cmd tee "/etc/systemd/system/${SELF_UPDATE_UNIT}.path" > /dev/null <<UNIT
+[Unit]
+Description=AAUL — surveille les demandes de mise à jour du dashboard
+
+[Path]
+PathExists=$request_dir/request
+Unit=${SELF_UPDATE_UNIT}.service
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+  $sudo_cmd systemctl daemon-reload
+  $sudo_cmd systemctl enable --now "${SELF_UPDATE_UNIT}.path" >/dev/null 2>&1 \
+    || warn "Unité ${SELF_UPDATE_UNIT}.path non activée : le bouton de mise à jour restera indisponible"
+  ok "Mise à jour depuis le dashboard prête (source : $repo_url, branche $branch)"
+}
+
+# ---------------------------------------------------------------------------
 #  Contrôle du service
 # ---------------------------------------------------------------------------
 stop_service() {
@@ -867,6 +1004,7 @@ if $FORCE_UPDATE && [ ! -d "$INSTALL_DIR/dashboard" ]; then
 fi
 
 trap 'on_error $? $LINENO' ERR
+trap on_exit EXIT
 
 if $IS_UPDATE; then
   # Versions actuellement en production
@@ -915,7 +1053,9 @@ if $IS_UPDATE; then
   build_client
   install_cli_command
   install_service
+  install_self_update
   restart_service
+  UPDATE_SUCCEEDED=true
   print_summary "Mise à jour"
 
 else
@@ -935,6 +1075,7 @@ else
   build_client
   install_cli_command
   install_service
+  install_self_update
   start_service
   print_summary "Installation"
 fi
